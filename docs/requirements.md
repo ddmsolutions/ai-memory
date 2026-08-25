@@ -96,7 +96,13 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 - **FR-M1** `why <id>` MUST show a memory's full story: capture origin, promotion lineage, supersession chain, recall stats, links.
 - **FR-M2** An eval harness MUST run a labelled question set against recall and store a per-run precision report; quality is measured, not vibes.
 - **FR-M3** A linter MUST report contradictions, near-duplicates, orphaned lineage, stale unverified facts, and rules whose evidence decayed (applying a confidence penalty).
-- **FR-M4** (Later) A `recall_trace` log MUST record candidate sets, choices, and backfilled correctness; rejections apply a link-weight penalty, not merely absent reinforcement.
+- **FR-M4** (shipped 2026-08-25) A `recall_trace` log MUST record candidate sets and injections (ids and scores only, never content) for session-ful recalls; `feedback` backfills correctness, and rejections apply confidence and link-weight penalties, not merely absent reinforcement.
+
+### Handoff memory (FR-W, shipped 2026-08-25)
+
+- **FR-W1** A handoff MUST be writable by fenced ```handoff transcript block or CLI, through the same redaction and instruction-screen funnel as every injectable surface.
+- **FR-W2** An open handoff MUST inject once at the next real session start (sessionless previews show but never consume), then be marked consumed and excluded thereafter.
+- **FR-W3** Consumed handoffs and unconsumed handoffs older than the configured TTL MUST purge at decay; handoffs are structurally never consolidatable.
 
 ### Portability, routing, search (FR-X / FR-D / FR-V, v0.3 draft)
 
@@ -145,6 +151,8 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 | UC-18 Migrations | FR-O4, FR-O5, NFR-5 | db.py | v0.2 S2 | LIVE |
 | (infra) CI | NFR-10 | GitHub Actions | v0.2 S1 | LIVE |
 | (release) | changelog, tag | docs | v0.2 S9 | LIVE |
+| UC-34 Utility feedback | FR-M4, NFR-11 | store.py (trace/feedback), CLI | backlog #34 | LIVE |
+| UC-35 Handoff memory | FR-W1..W3, NFR-1 | store.py, hooks/capture.py, CLI | backlog #35 | LIVE |
 
 Cross-cutting NFRs (1, 3, 6, 7, 9, 10) apply to every section and are re-checked at each section's Definition of Done.
 

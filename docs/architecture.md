@@ -7,6 +7,8 @@ Modelled on the standard cognitive split, because it maps cleanly onto what an a
 - **Episodic**: raw, time-stamped records of what happened. Cheap to write, low individual value, high aggregate value. The only store that hooks write to automatically. Decays: an episodic row that is never promoted is eventually noise, and consolidation is allowed to ignore it.
 - **Semantic**: durable facts, distilled from episodes or added directly. "The staging DB is Postgres 16." Facts can be superseded: a new row records `supersedes <old id>` and recall only ever returns the latest truth.
 - **Procedural**: rules about how to work. "Run the schema linter before committing migrations." These are the highest-leverage memories: a handful of good procedural rows change behaviour in every future session, so recall gives them priority.
+- **Prospective**: intentions with a trigger (a date, or context words) and a terminal lifecycle: they fire once, then complete or expire. The only type whose job is to end.
+- **Handoff**: working memory across a session boundary: one writer session, one reader session, then discarded. Never consolidated; its value is precisely that it does not persist.
 - **Entity**: a typed knowledge graph (nodes: person / project / system / thing; edges: typed, weighted, optionally evidenced by a memory row). Answers "who and what does this connect to" questions that flat text search cannot.
 
 ## Lifecycle
@@ -86,6 +88,7 @@ Full data model, ER diagram and data dictionary: `data-architecture.md`. In brie
 - **Stdlib only.** sqlite3 + FTS5 ships with Python. No dependency can rot, and install is a git clone.
 - **Text search before vector search.** FTS5 covers the recall cases that matter at this scale. An embedding layer is a roadmap item, added behind the same `search` interface, never a requirement.
 - **Fail soft everywhere.** Both hooks swallow every error and exit 0. A broken memory store must never block a session.
+- **Feedback penalises, not just reinforces.** Rejected recalls cut confidence and link weights (recall_trace + feedback); reinforce-only memory drifts toward plausible nonsense.
 - **The model does the judgement, the engine does the bookkeeping.** Capture, dedup, ranking, decay bookkeeping are deterministic; writing good memos and distilling good facts is model work, prompted by the `/memory` command.
 - **Poisoned memos cannot become persistent instructions.** Capture screens for instruction-shaped content and quarantines it in a reserved scope no recall surface includes; explicit search still finds it for review.
 - **Every recalled line carries its recorded date.** A retrieved fact reads as authoritative in a way a search result does not; wrong-and-retrieved is worse than absent. The date lets the model discount stale facts instead of trusting them blind.

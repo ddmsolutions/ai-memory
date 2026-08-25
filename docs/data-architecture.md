@@ -17,6 +17,8 @@ erDiagram
     MEMORIES ||--o{ INJECTION_LOG : "memory_id (injected this session)"
     MEMORIES ||--o{ MEMORY_ENTITIES : "mentions"
     ENTITIES ||--o{ MEMORY_ENTITIES : "mentioned by"
+    MEMORIES ||--o{ MEMORY_LINKS : "src / dst (associative)"
+    MEMORIES ||--|| MEMORY_EMBEDDINGS : "optional vector"
 
     MEMORIES {
         integer id PK
@@ -66,6 +68,51 @@ erDiagram
         integer memory_id PK "FK, cascade delete"
         integer entity_id PK "FK, cascade delete"
         text created_at
+    }
+
+    MEMORY_LINKS {
+        integer src_memory PK "FK, cascade delete"
+        integer dst_memory PK "FK, cascade delete"
+        text rel PK "derives_from | supports | contradicts | follows | co_session"
+        real weight "Hebbian, decays"
+        integer reinforce_count
+        text last_reinforced
+    }
+
+    MEMORY_EMBEDDINGS {
+        integer memory_id PK "FK, cascade delete"
+        text model
+        text vector "JSON floats"
+    }
+
+    INTENTIONS {
+        integer id PK
+        text content "redacted, screened"
+        text trigger_kind "time | context"
+        text trigger_value
+        text scope
+        text status "pending | fired | done | expired"
+        text origin_session
+        text resolved_at
+    }
+
+    RECALL_TRACE {
+        integer id PK
+        text session_id
+        text surface "pack | turn"
+        text cue
+        text candidates "JSON ids+scores, never content"
+        text injected "JSON ids"
+        integer was_useful "NULL until judged"
+    }
+
+    HANDOFFS {
+        integer id PK
+        text content "redacted, screened"
+        text scope
+        text origin_session
+        text consumed_at "one reader, then purged"
+        text consumed_by
     }
 ```
 
@@ -153,6 +200,26 @@ Session-level injection dedup: a memory injected once in a session (session-star
 
 The bridge between the memory store and the graph (FR-N1): "everything about X" is one query (`v_entity_memories` view), and purge-by-subject (FR-N2) walks it to erase an entity everywhere. Purge uses `secure_delete` + VACUUM so deleted content leaves no residual bytes in freed pages.
 
+### intentions (schema v5)
+
+Prospective memory (FR-P): `trigger_kind` time (ISO date, surfaces in the pack when due) or context (words that fire at turn time). Lifecycle pending, fired (surfaced once, only by a real session), done, expired; done/expired/fired rows leave every pack. Content passes the same redact + instruction-screen funnel as memories.
+
+### memory_links (schema v6)
+
+Associative layer (FR-L): typed weighted links, curated (`derives_from`, `supports`, `contradicts`, `follows`) plus automatic `co_session` from co-capture and co-retrieval. Weights reinforce asymptotically toward 1.0 and decay by `link_half_life_days` since last reinforcement; effective weight below `link_prune_floor` is pruned at decay. Retrieval (`related`) reads through `v_active_memories` and returns ranked candidate sets, never top-1.
+
+### memory_embeddings (schema v7)
+
+Optional semantic layer (FR-V1): one JSON vector per active memory per model, produced by `embed-index` against an Ollama-compatible endpoint. Quarantined rows are never embedded. Absence or failure of the backend changes nothing.
+
+### recall_trace (schema v9)
+
+Utility feedback (FR-M4): every session-ful injection logs the candidate set and injected ids (ids and scores only, never content). `feedback <id> --useful|--not-useful` judges a trace; rejection cuts injected rows' confidence by `feedback_penalty` and halves-ish their `co_session` link weights. `v_recall_precision` aggregates judged traces per surface. Purged after `trace_retention_days` at decay.
+
+### handoffs (schema v10)
+
+Working memory (UC-35): state of play written by one session (fenced ```handoff block or CLI), injected once at the next real session start, then consumed; consumed rows and stale unconsumed rows (`handoff_ttl_days`) purge at decay. Same redact + screen funnel as every injectable surface. Never consolidatable, by table separation.
+
 ### memories_fts
 
 FTS5 virtual table over `memories.content` (external-content mode, `content_rowid = id`), kept in sync by three triggers (`memories_ai` / `memories_ad` / `memories_au`). It is an index, not a store: never write to it directly.
@@ -176,6 +243,7 @@ Candidate-key uniques (`entities(name, etype)`, `edges(src, dst, rel)`) double a
 | `v_active_memories` | memories where `superseded_by IS NULL AND scope <> 'quarantine'` (schema v8) | THE read surface for current truth. Search and recall go through it; the exclusion of corrected rows is defined once, not repeated per query. |
 | `v_consolidation_backlog` | active episodic rows with `consolidated = 0` | One definition of "what consolidation still owes", shared by `/memory consolidate` and `status`. |
 | `v_entity_memories` | mentions joined to entity names and full memory rows | "Everything about X" in one query; substrate for purge and graph-aware recall |
+| `v_recall_precision` | judged recall_trace rows grouped by surface | Recall quality per surface, measured not vibes (NFR-11) |
 | `v_edges_named` | edges joined to src/dst entity names and types | Human-readable graph inspection in one query; stable surface for the future `why` command and viewer. |
 
 Views are read-only surfaces; all writes (insert, recall-counter bumps, supersession) go to the base tables.

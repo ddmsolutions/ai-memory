@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.0 - 2026-08-25
+
+The learning release: recall that measures itself, and memory that crosses session boundaries cleanly.
+
+### Added
+- Recall utility feedback (schema v9): every session-ful injection leaves a trace (ids and scores only, never content); `trace list/show` + `feedback <id> --useful|--not-useful`; rejection cuts injected rows' confidence and co_session link weights; `v_recall_precision` per surface; traces purge at `trace_retention_days` (#34)
+- Handoff memory (schema v10): fenced ```handoff blocks (or `handoff add`) carry state of play to the next session; injected once at real session start, then consumed; TTL purge; same redact + instruction-screen funnel as every injectable surface; structurally never consolidatable (#35)
+- Documentation audit: data-architecture now covers all ten schema versions (intentions, links, embeddings, traces, handoffs were undocumented); README/architecture describe all six memory kinds and four hooks; command and skill route the full CLI
+
 ## v0.3.0 - 2026-08-25
 
 Richer memory: a fifth memory type, associative structure, measurement, and hardened trust boundaries.

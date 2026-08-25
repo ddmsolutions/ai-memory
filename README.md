@@ -12,6 +12,8 @@ Claude Code forgets everything between sessions. This plugin fixes that with a m
 | **Semantic** | Durable facts about the user, the projects, the environment | "The staging DB is Postgres 16 on port 5433" |
 | **Procedural** | How to work: lessons, rules, corrections that shape future behaviour | "Always run the schema linter before committing migrations" |
 | **Entity** | A typed knowledge graph: people, projects, systems, and how they relate | "Alice (person) maintains (edge) payments-service (system)" |
+| **Prospective** | Intentions: remind me on a date, or when a topic comes up | "When we next touch the schema: bump user_version" |
+| **Handoff** | State of play for the next session; read once, then discarded | "Migration half done, tests 3 and 7 failing" |
 
 ## How it works
 
@@ -46,7 +48,15 @@ python -m ai_memory search "postgres"
 python -m ai_memory recall --task "database migration" --limit 10
 python -m ai_memory entity add --name payments-service --etype system
 python -m ai_memory entity link alice payments-service --rel maintains
-python -m ai_memory consolidate
+python -m ai_memory entity about payments-service
+python -m ai_memory intend add "rotate the token" --when 2026-09-01
+python -m ai_memory handoff add "refactor parked at step 2"
+python -m ai_memory why 42
+python -m ai_memory related 42
+python -m ai_memory consolidate && python -m ai_memory decay --dry-run
+python -m ai_memory lint
+python -m ai_memory trace list && python -m ai_memory feedback 7 --not-useful
+python -m ai_memory export --out backup.json
 python -m ai_memory status
 ```
 
@@ -60,7 +70,7 @@ python -m ai_memory status
 
 ## Status
 
-v0.1: core store, CLI, and hook wiring. See `docs/roadmap.md` for what is next.
+v0.4: five memory types plus handoffs, four hooks (session-start recall, turn-time recall, capture, subagent spawn injection), secret redaction and instruction quarantine, associative links, eval harness and utility feedback, export/import. See `CHANGELOG.md`; remaining backlog in `docs/roadmap.md`.
 
 ## License
 
