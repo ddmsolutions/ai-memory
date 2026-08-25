@@ -209,6 +209,13 @@ def recall_pack(
         matches = search(conn, task, scope=scope, limit=limit)
         sections.append((f"Relevant to: {task}", take(matches, max(3, limit // 3))))
 
+    graph_lines: list[str] = []
+    if task and remaining > 0:
+        from . import graph as _graph
+
+        graph_lines = _graph.task_neighbourhood(conn, task, remaining)
+        remaining -= len(graph_lines)
+
     recalled = [i for i in picked if i not in already_injected]
     if recalled:
         _bump_recall(conn, recalled, step=float(cfg["reinforce_step"]))
@@ -227,6 +234,9 @@ def recall_pack(
             continue
         lines.append(f"\n{title}:")
         lines.extend(format_line(r) for r in rows)
+    if graph_lines:
+        lines.append("\nKnown connections (graph):")
+        lines.extend(graph_lines)
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
@@ -514,6 +524,13 @@ def decay(conn: sqlite3.Connection, cfg: dict | None = None, dry_run: bool = Fal
         if rows:
             ids = [r["id"] for r in rows]
             qmarks = ",".join("?" * len(ids))
+            # Evidence decay (FR-M3): a rule outliving its source loses standing
+            # rather than persisting unchallenged.
+            conn.execute(
+                f"UPDATE memories SET confidence = MAX(0.1, confidence - 0.1)"
+                f" WHERE promoted_from IN ({qmarks})",
+                ids,
+            )
             conn.execute(f"DELETE FROM memories WHERE id IN ({qmarks})", ids)
         conn.execute(
             "DELETE FROM injection_log WHERE injected_at < datetime('now', '-14 days')"
@@ -526,6 +543,55 @@ def decay(conn: sqlite3.Connection, cfg: dict | None = None, dry_run: bool = Fal
         )
         conn.commit()
     return rows
+
+
+def lint(conn: sqlite3.Connection) -> list[dict]:
+    """FR-M3: one health pass over the store. Reports, never mutates."""
+    findings: list[dict] = []
+    for row in conn.execute(
+        "SELECT MIN(id) AS keeper, GROUP_CONCAT(id) AS ids, content FROM v_active_memories"
+        " GROUP BY type, scope, lower(content) HAVING COUNT(*) > 1"
+    ):
+        findings.append({"issue": "duplicate", "ids": row["ids"], "detail": row["content"]})
+    for row in conn.execute(
+        "SELECT id, content, verify_by FROM v_active_memories"
+        " WHERE verify_by IS NOT NULL AND substr(verify_by, 1, 10) <= date('now')"
+    ):
+        findings.append({
+            "issue": "overdue_verify", "ids": str(row["id"]),
+            "detail": f"{row['content']} (due {row['verify_by'][:10]})",
+        })
+    for row in conn.execute(
+        "SELECT id, content FROM v_active_memories WHERE type = 'procedural'"
+        " AND pinned = 0 AND recall_count = 0"
+        " AND created_at < datetime('now', '-180 days')"
+    ):
+        findings.append({"issue": "stale_rule", "ids": str(row["id"]), "detail": row["content"]})
+    for row in conn.execute(
+        "SELECT l.src_memory, l.dst_memory, a.content AS a_content, b.content AS b_content"
+        " FROM memory_links l JOIN memories a ON a.id = l.src_memory"
+        " JOIN memories b ON b.id = l.dst_memory"
+        " WHERE l.rel = 'contradicts'"
+        " AND a.superseded_by IS NULL AND b.superseded_by IS NULL"
+    ):
+        findings.append({
+            "issue": "unresolved_contradiction",
+            "ids": f"{row['src_memory']},{row['dst_memory']}",
+            "detail": f"'{row['a_content']}' vs '{row['b_content']}'",
+        })
+    for row in conn.execute(
+        "SELECT id, content FROM memories WHERE scope = 'quarantine'"
+    ):
+        findings.append({"issue": "quarantined", "ids": str(row["id"]), "detail": row["content"]})
+    for row in conn.execute(
+        "SELECT id, content, confidence FROM v_active_memories"
+        " WHERE type IN ('semantic','procedural') AND confidence < 0.4"
+    ):
+        findings.append({
+            "issue": "weak_evidence", "ids": str(row["id"]),
+            "detail": f"{row['content']} (confidence {row['confidence']:.2f})",
+        })
+    return findings
 
 
 def why(conn: sqlite3.Connection, memory_id: int) -> str:

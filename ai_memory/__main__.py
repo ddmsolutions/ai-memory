@@ -84,6 +84,8 @@ def build_parser() -> argparse.ArgumentParser:
     eab = esub.add_parser("about", help="everything we know about an entity")
     eab.add_argument("name")
 
+    sub.add_parser("lint", help="store health: duplicates, overdue facts, stale rules, contradictions, quarantine")
+
     w = sub.add_parser("why", help="explain a memory: origin, lineage, corrections, usage")
     w.add_argument("id", type=int)
 
@@ -196,6 +198,12 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"nothing recorded about {args.name}")
             for row in rows:
                 print(f"#{row['id']} [{row['type']}] {row['content']}")
+    elif args.command == "lint":
+        findings = store.lint(conn)
+        if not findings:
+            print("store is clean")
+        for f in findings:
+            print(f"[{f['issue']}] #{f['ids']}: {f['detail']}")
     elif args.command == "why":
         print(store.why(conn, args.id))
     elif args.command == "intend":

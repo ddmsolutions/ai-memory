@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Memory linter: `lint` reports duplicates, overdue facts, stale rules, unresolved contradictions, quarantine backlog, weak evidence; decay now applies the evidence-decay confidence penalty to rules whose source episode ages out (#23)
+- Graph-aware recall: task packs gain a budget-capped Known connections section from the entity neighbourhood (#27)
+
 - Prospective memory (schema v5): `intend` with time or context triggers; due intentions lead the pack, context intentions fire at turn time, each fires once; done/expired/rearm lifecycle (#20)
 - Associative links (schema v6): curated typed links + automatic co_session from co-capture, Hebbian reinforce on co-retrieval with time decay and pruning, `related <id>` returns a ranked candidate set with ambiguity flags, never silent top-1 (#24)
 
