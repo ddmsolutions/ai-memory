@@ -26,7 +26,7 @@ Stop hook ──▶ episodic ──consolidate──▶ semantic ──┐
 
 One SQLite file (`~/.ai-memory/memory.db`, override with `AI_MEMORY_DB`). Three tables plus an FTS5 index:
 
-- `memories(id, type, scope, content, source, confidence, pinned, consolidated, superseded_by, recall_count, last_recalled_at, created_at)`
+- `memories(id, type, scope, content, origin_session, promoted_from, confidence, pinned, consolidated, superseded_by, recall_count, last_recalled_at, created_at)`
 - `entities(id, name, etype, summary)` with `UNIQUE(name, etype)`
 - `edges(id, src, dst, rel, weight, memory_id)` with `UNIQUE(src, dst, rel)`
 
@@ -38,3 +38,4 @@ One SQLite file (`~/.ai-memory/memory.db`, override with `AI_MEMORY_DB`). Three 
 - **Text search before vector search.** FTS5 covers the recall cases that matter at this scale. An embedding layer is a roadmap item, added behind the same `search` interface, never a requirement.
 - **Fail soft everywhere.** Both hooks swallow every error and exit 0. A broken memory store must never block a session.
 - **The model does the judgement, the engine does the bookkeeping.** Capture, dedup, ranking, decay bookkeeping are deterministic; writing good memos and distilling good facts is model work, prompted by the `/memory` command.
+- **Third normal form, with one documented exception.** Provenance is atomic (`origin_session` for capture, `promoted_from` as a self-referencing foreign key for consolidation lineage), never an encoded string. `recall_count`/`last_recalled_at` are derived counters kept on the row deliberately: a fully-normalised `recall_events` table would add one insert per memory per session start with no query that needs the individual events. If usage metrics (roadmap) ever need per-event data, that table supersedes the counters.

@@ -58,16 +58,15 @@ def main() -> int:
         from ai_memory import db, store
 
         conn = db.connect()
-        source = f"session:{session_id}"
         already = {
             row["content"]
             for row in conn.execute(
-                "SELECT content FROM memories WHERE source = ?", (source,)
+                "SELECT content FROM memories WHERE origin_session = ?", (session_id,)
             ).fetchall()
         }
         for memo in memos:
             if memo not in already:
-                store.remember(conn, memo, mtype="episodic", source=source)
+                store.remember(conn, memo, mtype="episodic", origin_session=session_id)
     except Exception:
         return 0
     return 0

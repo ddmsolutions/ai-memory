@@ -4,6 +4,13 @@ One local database file holds all four stores:
   memories  - episodic / semantic / procedural rows (FTS5 indexed)
   entities  - typed nodes of the knowledge graph
   edges     - typed, weighted relationships between entities
+
+The schema is third normal form with one documented exception:
+recall_count / last_recalled_at are derived counters kept on the row
+(a recall_events table was rejected: one insert per memory per session
+start for no current query need). Provenance is atomic: origin_session
+holds the capturing session id, promoted_from is a real self-referencing
+foreign key recording consolidation lineage.
 """
 
 from __future__ import annotations
@@ -18,7 +25,8 @@ CREATE TABLE IF NOT EXISTS memories (
   type             TEXT NOT NULL CHECK (type IN ('episodic','semantic','procedural')),
   scope            TEXT NOT NULL DEFAULT 'global',
   content          TEXT NOT NULL,
-  source           TEXT,
+  origin_session   TEXT,
+  promoted_from    INTEGER REFERENCES memories(id) ON DELETE SET NULL,
   confidence       REAL NOT NULL DEFAULT 0.7,
   pinned           INTEGER NOT NULL DEFAULT 0,
   consolidated     INTEGER NOT NULL DEFAULT 0,

@@ -23,7 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("content")
     r.add_argument("--type", dest="mtype", default="episodic", choices=store.MEMORY_TYPES)
     r.add_argument("--scope", default="global")
-    r.add_argument("--source")
+    r.add_argument("--session", dest="origin_session", help="session id this memory was captured from")
     r.add_argument("--confidence", type=float, default=0.7)
     r.add_argument("--pin", action="store_true")
     r.add_argument("--supersedes", type=int, help="id of the memory this one replaces")
@@ -82,7 +82,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(store.status(conn), indent=2))
     elif args.command == "remember":
         mid = store.remember(
-            conn, args.content, mtype=args.mtype, scope=args.scope, source=args.source,
+            conn, args.content, mtype=args.mtype, scope=args.scope,
+            origin_session=args.origin_session,
             confidence=args.confidence, pinned=args.pin, supersedes=args.supersedes,
         )
         print(f"remembered #{mid} ({args.mtype})")

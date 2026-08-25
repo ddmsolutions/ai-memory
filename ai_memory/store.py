@@ -19,7 +19,8 @@ def remember(
     content: str,
     mtype: str = "episodic",
     scope: str = "global",
-    source: str | None = None,
+    origin_session: str | None = None,
+    promoted_from: int | None = None,
     confidence: float = 0.7,
     pinned: bool = False,
     supersedes: int | None = None,
@@ -27,9 +28,9 @@ def remember(
     if mtype not in MEMORY_TYPES:
         raise ValueError(f"type must be one of {MEMORY_TYPES}")
     cur = conn.execute(
-        "INSERT INTO memories (type, scope, content, source, confidence, pinned)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
-        (mtype, scope, content, source, confidence, int(pinned)),
+        "INSERT INTO memories (type, scope, content, origin_session, promoted_from,"
+        " confidence, pinned) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (mtype, scope, content, origin_session, promoted_from, confidence, int(pinned)),
     )
     new_id = cur.lastrowid
     if supersedes is not None:
@@ -158,7 +159,7 @@ def promote(
         content or row["content"],
         mtype=mtype,
         scope=row["scope"],
-        source=f"promoted:{memory_id}",
+        promoted_from=memory_id,
         confidence=min(1.0, row["confidence"] + 0.1),
     )
     conn.execute("UPDATE memories SET consolidated = 1 WHERE id = ?", (memory_id,))

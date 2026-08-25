@@ -45,14 +45,31 @@ def test_recall_pack_priorities_and_counting(conn):
     assert counted >= 3
 
 
-def test_promote_marks_consolidated(conn):
+def test_promote_marks_consolidated_and_records_lineage(conn):
     eid = store.remember(conn, "User said always use British spelling", mtype="episodic")
     new_id = store.promote(conn, eid, "procedural", content="Use British spelling in all output")
     row = conn.execute("SELECT * FROM memories WHERE id = ?", (eid,)).fetchone()
     assert row["consolidated"] == 1
     new = conn.execute("SELECT * FROM memories WHERE id = ?", (new_id,)).fetchone()
     assert new["type"] == "procedural"
+    assert new["promoted_from"] == eid
     assert store.unconsolidated(conn) == []
+
+
+def test_promoted_from_is_enforced_foreign_key(conn):
+    import sqlite3 as sq
+    with pytest.raises(sq.IntegrityError):
+        conn.execute(
+            "INSERT INTO memories (type, content, promoted_from) VALUES ('semantic', 'orphan', 9999)"
+        )
+
+
+def test_capture_dedups_by_origin_session(conn):
+    store.remember(conn, "outcome: shipped", mtype="episodic", origin_session="s1")
+    rows = conn.execute(
+        "SELECT content FROM memories WHERE origin_session = ?", ("s1",)
+    ).fetchall()
+    assert [r["content"] for r in rows] == ["outcome: shipped"]
 
 
 def test_scope_filtering(conn):
