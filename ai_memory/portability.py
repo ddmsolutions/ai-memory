@@ -1,7 +1,8 @@
 """Export / import (FR-X1, FR-X2): full-store JSON, lossless round trip.
 
-Export carries every table except injection_log (session-ephemeral by
-design). Import deduplicates memories on (type, scope, content,
+Export carries every table except two deliberate exclusions: injection_log
+(session-ephemeral dedup state) and recall_trace (measurement data bound to
+sessions that will not exist on the target machine). Import deduplicates memories on (type, scope, content,
 origin_session, created_at) and remaps all internal references
 (promoted_from, superseded_by, edges, mentions), so importing the same
 file twice is a no-op. Rows are inserted verbatim, not via remember():
@@ -36,6 +37,7 @@ def export_store(conn: sqlite3.Connection) -> dict:
         "memory_links": rows("SELECT * FROM memory_links"),
         "intentions": rows("SELECT * FROM intentions ORDER BY id"),
         "memory_embeddings": rows("SELECT * FROM memory_embeddings"),
+        "handoffs": rows("SELECT * FROM handoffs ORDER BY id"),
     }
 
 
@@ -141,6 +143,21 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
         )
         intentions_in += 1
 
+    handoffs_in = 0
+    for h in data.get("handoffs", []):
+        if conn.execute(
+            "SELECT 1 FROM handoffs WHERE content = ? AND created_at = ?",
+            (h["content"], h["created_at"]),
+        ).fetchone():
+            continue
+        conn.execute(
+            "INSERT INTO handoffs (content, scope, origin_session, created_at,"
+            " consumed_at, consumed_by) VALUES (?,?,?,?,?,?)",
+            (h["content"], h["scope"], h.get("origin_session"), h["created_at"],
+             h.get("consumed_at"), h.get("consumed_by")),
+        )
+        handoffs_in += 1
+
     for emb in data.get("memory_embeddings", []):
         if emb["memory_id"] in mem_map:
             conn.execute(
@@ -155,6 +172,7 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
             "mentions": len(data.get("memory_entities", [])),
             "links": len(data.get("memory_links", [])),
             "intentions": intentions_in,
+            "handoffs": handoffs_in,
             "embeddings": len(data.get("memory_embeddings", []))}
 
 
