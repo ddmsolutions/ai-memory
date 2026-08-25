@@ -93,7 +93,7 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 10
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
@@ -199,6 +199,40 @@ MIGRATIONS: dict[int, list[str]] = {
         "  FROM memory_entities me"
         "  JOIN entities e ON e.id = me.entity_id"
         "  JOIN v_active_memories m ON m.id = me.memory_id",
+    ],
+    9: [
+        # FR-M4: recall utility feedback. Traces hold ids and scores only,
+        # never content: no duplicate leak surface.
+        """CREATE TABLE IF NOT EXISTS recall_trace (
+             id          INTEGER PRIMARY KEY,
+             session_id  TEXT NOT NULL,
+             surface     TEXT NOT NULL CHECK (surface IN ('pack','turn')),
+             cue         TEXT,
+             candidates  TEXT NOT NULL,
+             injected    TEXT NOT NULL,
+             was_useful  INTEGER,
+             feedback_note TEXT,
+             created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+           )""",
+        "CREATE INDEX IF NOT EXISTS ix_trace_session ON recall_trace(session_id)",
+        "CREATE VIEW IF NOT EXISTS v_recall_precision AS"
+        "  SELECT surface, COUNT(*) AS judged, AVG(was_useful) AS precision"
+        "  FROM recall_trace WHERE was_useful IS NOT NULL GROUP BY surface",
+    ],
+    10: [
+        # UC-35 handoff memory: one writer session, one reader session, then
+        # discarded. Its own table so it can never be consolidated.
+        """CREATE TABLE IF NOT EXISTS handoffs (
+             id             INTEGER PRIMARY KEY,
+             content        TEXT NOT NULL,
+             scope          TEXT NOT NULL DEFAULT 'global',
+             origin_session TEXT,
+             created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+             consumed_at    TEXT,
+             consumed_by    TEXT
+           )""",
+        "CREATE INDEX IF NOT EXISTS ix_handoffs_open ON handoffs(scope)"
+        "  WHERE consumed_at IS NULL",
     ],
 }
 

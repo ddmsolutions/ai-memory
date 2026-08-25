@@ -104,6 +104,27 @@ def build_parser() -> argparse.ArgumentParser:
         cmd = itsub.add_parser(name)
         cmd.add_argument("id", type=int)
 
+    ho = sub.add_parser("handoff", help="state of play for the next session (one writer, one reader)")
+    hosub = ho.add_subparsers(dest="handoff_command", required=True)
+    hoa = hosub.add_parser("add")
+    hoa.add_argument("content")
+    hoa.add_argument("--scope", default="global")
+    hosub.add_parser("list")
+
+    tr = sub.add_parser("trace", help="recall traces: what was considered and injected")
+    trsub = tr.add_subparsers(dest="trace_command", required=True)
+    trl = trsub.add_parser("list")
+    trl.add_argument("--limit", type=int, default=20)
+    trs = trsub.add_parser("show")
+    trs.add_argument("id", type=int)
+
+    fb = sub.add_parser("feedback", help="judge a recall trace; rejection penalises rows and links")
+    fb.add_argument("id", type=int)
+    fbg = fb.add_mutually_exclusive_group(required=True)
+    fbg.add_argument("--useful", action="store_true")
+    fbg.add_argument("--not-useful", dest="not_useful", action="store_true")
+    fb.add_argument("--note")
+
     lk = sub.add_parser("link", help="curated typed link between two memories")
     lk.add_argument("src", type=int)
     lk.add_argument("dst", type=int)
@@ -232,6 +253,42 @@ def main(argv: list[str] | None = None) -> int:
             status = {"done": "done", "expire": "expired", "rearm": "pending"}[args.intend_command]
             store.resolve_intention(conn, args.id, status)
             print(f"intention #{args.id} -> {status}")
+    elif args.command == "handoff":
+        if args.handoff_command == "add":
+            try:
+                hid = store.handoff_write(conn, args.content, scope=args.scope)
+            except ValueError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
+            print(f"handoff #{hid} queued for the next session")
+        else:
+            rows = conn.execute("SELECT * FROM handoffs ORDER BY id").fetchall()
+            if not rows:
+                print("no handoffs")
+            for row in rows:
+                state = f"consumed by {row['consumed_by']}" if row["consumed_at"] else "open"
+                print(f"#{row['id']} [{state}/{row['scope']}] {row['content']}")
+    elif args.command == "trace":
+        if args.trace_command == "list":
+            rows = conn.execute(
+                "SELECT id, surface, cue, injected, was_useful, created_at FROM recall_trace"
+                " ORDER BY id DESC LIMIT ?", (args.limit,)).fetchall()
+            if not rows:
+                print("no traces")
+            for row in rows:
+                judged = {None: "unjudged", 0: "not useful", 1: "useful"}[row["was_useful"]]
+                print(f"#{row['id']} {row['created_at']} [{row['surface']}/{judged}]"
+                      f" cue: {row['cue']} injected: {row['injected']}")
+        else:
+            row = conn.execute("SELECT * FROM recall_trace WHERE id = ?", (args.id,)).fetchone()
+            print(json.dumps(dict(row), indent=2) if row else f"no trace #{args.id}")
+    elif args.command == "feedback":
+        try:
+            report = store.feedback(conn, args.id, useful=args.useful, note=args.note)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(json.dumps(report))
     elif args.command == "link":
         store.link_memories(conn, args.src, args.dst, rel=args.rel, weight=args.weight)
         print(f"#{args.src} -{args.rel}-> #{args.dst}")

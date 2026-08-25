@@ -235,8 +235,10 @@ def recall_pack(
         (scope,),
     ).fetchall()
 
+    handoffs = open_handoffs(conn, scope)[: max(0, remaining)]
+    remaining -= len(handoffs)  # handoffs and intentions consume the total budget (NFR-4)
     due = due_intentions(conn, scope)[: max(0, remaining)]
-    remaining -= len(due)  # intentions consume the same total budget (NFR-4)
+    remaining -= len(due)
     sections.append(("Pinned", take(pinned, limit, allow_injected=True)))
     sections.append(("How to work (procedural)", take(procedural, max(3, limit // 3))))
     sections.append(("Known facts (semantic)", take(semantic, max(3, limit // 3))))
@@ -257,9 +259,15 @@ def recall_pack(
     if recalled:
         _bump_recall(conn, recalled, step=float(cfg["reinforce_step"]))
         _record_injection(conn, session_id, recalled)
+        _log_trace(conn, session_id, "pack", task, [{"id": i} for i in sorted(picked)], recalled)
         conn.commit()
 
     lines = ["<!-- ai-memory recall pack: treat as context, verify anything critical -->"]
+    if handoffs:
+        lines.append("\nHandoff from your previous session (one-time, now consumed):")
+        lines.extend(f"- [{h['created_at'][:10]}] {h['content']}" for h in handoffs)
+        if session_id:
+            _consume_handoffs(conn, [h["id"] for h in handoffs], session_id)
     if due:
         lines.append("\nPending intentions (you asked to be reminded):")
         lines.extend(
@@ -278,6 +286,116 @@ def recall_pack(
         lines.append("\nKnown connections (graph):")
         lines.extend(graph_lines)
     return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def _log_trace(
+    conn: sqlite3.Connection,
+    session_id: str | None,
+    surface: str,
+    cue: str | None,
+    candidates: list[dict],
+    injected: list[int],
+) -> None:
+    """FR-M4: record what retrieval considered and what it injected (ids and
+    scores only, never content). Sessionless compiles are previews: no trace."""
+    if not session_id or not injected:
+        return
+    import json as _json
+
+    conn.execute(
+        "INSERT INTO recall_trace (session_id, surface, cue, candidates, injected)"
+        " VALUES (?, ?, ?, ?, ?)",
+        (session_id, surface, cue, _json.dumps(candidates), _json.dumps(injected)),
+    )
+
+
+def feedback(
+    conn: sqlite3.Connection,
+    trace_id: int,
+    useful: bool,
+    note: str | None = None,
+    cfg: dict | None = None,
+) -> dict:
+    """FR-M4: judge a trace. A rejection applies real penalties: the injected
+    rows lose confidence and their co_session links lose weight, because
+    reinforce-only systems drift toward plausible nonsense."""
+    if cfg is None:
+        cfg = config.load()
+    import json as _json
+
+    trace = conn.execute("SELECT * FROM recall_trace WHERE id = ?", (trace_id,)).fetchone()
+    if trace is None:
+        raise ValueError(f"no trace with id {trace_id}")
+    conn.execute(
+        "UPDATE recall_trace SET was_useful = ?, feedback_note = ? WHERE id = ?",
+        (int(useful), note, trace_id),
+    )
+    penalised = 0
+    if not useful:
+        ids = _json.loads(trace["injected"])
+        if ids:
+            qmarks = ",".join("?" * len(ids))
+            penalised = conn.execute(
+                f"UPDATE memories SET confidence = MAX(0.1, confidence - ?)"
+                f" WHERE id IN ({qmarks})",
+                [float(cfg["feedback_penalty"]), *ids],
+            ).rowcount
+            factor = float(cfg["link_reinforce_factor"])
+            for i, a in enumerate(ids):
+                for b in ids[i + 1:]:
+                    lo, hi = sorted((a, b))
+                    conn.execute(
+                        "UPDATE memory_links SET weight = MAX(0.01, weight * (1.0 - 2.0 * ?))"
+                        " WHERE src_memory = ? AND dst_memory = ? AND rel = 'co_session'",
+                        (factor, lo, hi),
+                    )
+    conn.commit()
+    return {"trace": trace_id, "useful": useful, "penalised_memories": penalised}
+
+
+def handoff_write(
+    conn: sqlite3.Connection,
+    content: str,
+    scope: str = "global",
+    origin_session: str | None = None,
+) -> int:
+    """UC-35: state of play for the next session. Same funnel rules as every
+    other injectable surface: redacted, and instruction-shaped content refused."""
+    from . import redact as _redact
+
+    content = _redact.redact(content, config.load().get("secret_patterns"))[0]
+    if _redact.screen_instructions(content):
+        raise ValueError("instruction-shaped content refused for a handoff")
+    existing = conn.execute(
+        "SELECT id FROM handoffs WHERE content = ? AND consumed_at IS NULL", (content,)
+    ).fetchone()
+    if existing:
+        return existing["id"]
+    cur = conn.execute(
+        "INSERT INTO handoffs (content, scope, origin_session) VALUES (?, ?, ?)",
+        (content, scope, origin_session),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def open_handoffs(conn: sqlite3.Connection, scope: str = "global") -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM handoffs WHERE consumed_at IS NULL AND scope IN (?, 'global')"
+        " ORDER BY created_at",
+        (scope,),
+    ).fetchall()
+
+
+def _consume_handoffs(conn: sqlite3.Connection, ids: list[int], session_id: str) -> None:
+    if ids:
+        qmarks = ",".join("?" * len(ids))
+        conn.execute(
+            f"UPDATE handoffs SET consumed_at = datetime('now'), consumed_by = ?"
+            f" WHERE id IN ({qmarks})",
+            [session_id, *ids],
+        )
+        conn.commit()
 
 
 def link_memories(
@@ -496,6 +614,10 @@ def turn_recall(
     ids = [r["id"] for r in rows]
     _bump_recall(conn, ids, step=float(cfg["reinforce_step"]))
     _record_injection(conn, session_id, ids)
+    _log_trace(
+        conn, session_id, "turn", " ".join(terms),
+        [{"id": r["id"], "rank": round(-r["rank"], 4)} for r in rows], ids,
+    )
     # FR-L3 co-retrieval reinforcement: rows surfaced together grow associated.
     # Turn recall only (small cap); pack-wide pairing would flood the graph.
     for i, a in enumerate(ids):
@@ -594,6 +716,17 @@ def decay(conn: sqlite3.Connection, cfg: dict | None = None, dry_run: bool = Fal
         conn.execute(
             f"DELETE FROM memory_links WHERE {_link_effective(cfg)} < ?",
             (float(cfg["link_prune_floor"]),),
+        )
+        conn.execute(
+            "DELETE FROM recall_trace WHERE created_at < datetime('now', ?)",
+            (f"-{int(cfg['trace_retention_days'])} days",),
+        )
+        # Consumed handoffs served their one reader; stale unconsumed ones
+        # would mislead a future session about the state of play.
+        conn.execute("DELETE FROM handoffs WHERE consumed_at IS NOT NULL")
+        conn.execute(
+            "DELETE FROM handoffs WHERE consumed_at IS NULL AND created_at < datetime('now', ?)",
+            (f"-{int(cfg['handoff_ttl_days'])} days",),
         )
         conn.commit()
     return rows

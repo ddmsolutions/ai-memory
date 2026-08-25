@@ -20,6 +20,9 @@ DEFAULTS: dict = {
     "decay_window_days": 30,       # episodics older than this may decay
     "reinforce_step": 0.05,        # confidence bump per recall, capped at 1.0
     "spawn_pack_limit": 6,         # rows injected into a spawned subagent's prompt; 0 disables
+    "feedback_penalty": 0.05,      # confidence cut on rows judged not useful
+    "trace_retention_days": 30,    # recall traces older than this purge at decay
+    "handoff_ttl_days": 7,         # unconsumed handoffs older than this purge at decay
     "embed_enabled": False,        # optional semantic search layer (local model, fail-soft)
     "embed_model": "nomic-embed-text",
     "embed_url": "http://localhost:11434",  # Ollama-compatible /api/embeddings endpoint
