@@ -36,7 +36,7 @@ GitHub Actions workflow: pytest on push and PR, Python 3.10 and 3.12, README bad
 
 ### Section 2: Schema versioning and migrations
 `PRAGMA user_version` plus a small ordered-migration runner in `db.py`. Required BEFORE dogfooding starts: the next schema change must not strand a live store. Test: create at old version, migrate, verify.
-- Status: [ ] not started
+- Status: [x] complete (issue #3)
 
 ### Section 3: Config file
 `~/.ai-memory/config.json` (override path via env), read once, fail-soft to defaults. Carries: decay window, recall pack size, per-section caps, scope mapping. Removes the hardcoded values the coding rules prohibit.

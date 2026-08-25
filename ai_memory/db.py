@@ -92,6 +92,45 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
+SCHEMA_VERSION = 1
+
+# Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
+# version 1; every DDL change from here ships as an entry here, never as an
+# edit that only fresh stores receive.
+MIGRATIONS: dict[int, list[str]] = {}
+
+
+class MigrationError(RuntimeError):
+    """A migration failed; the store was left untouched at its old version."""
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version == 0:
+        # Fresh store, or a pre-versioning v0.1 store: the baseline DDL is
+        # idempotent either way.
+        conn.executescript(SCHEMA)
+        conn.execute("PRAGMA user_version = 1")
+        version = 1
+    for target in sorted(MIGRATIONS):
+        if target <= version:
+            continue
+        try:
+            # Explicit BEGIN: python sqlite3's implicit transaction excludes
+            # DDL, which would half-apply a failed migration.
+            conn.execute("BEGIN IMMEDIATE")
+            for statement in MIGRATIONS[target]:
+                conn.execute(statement)
+            conn.execute(f"PRAGMA user_version = {int(target)}")
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            raise MigrationError(
+                f"migration to schema version {target} failed, store left at {version}: {exc}"
+            ) from exc
+        version = target
+
+
 def default_db_path() -> Path:
     env = os.environ.get("AI_MEMORY_DB")
     if env:
@@ -107,5 +146,5 @@ def connect(db_path: Path | None = None) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
-    conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn

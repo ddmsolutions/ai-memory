@@ -72,7 +72,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    conn = db.connect(args.db)
+    try:
+        conn = db.connect(args.db)
+    except db.MigrationError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
     if args.command == "init":
         print(f"initialised {args.db or db.default_db_path()}")
