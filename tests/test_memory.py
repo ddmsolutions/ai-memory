@@ -113,6 +113,42 @@ def test_cli_end_to_end(tmp_path):
     assert counts["semantic"] == 1
 
 
+def test_active_view_excludes_superseded(conn):
+    old = store.remember(conn, "fact v1", mtype="semantic")
+    store.remember(conn, "fact v2", mtype="semantic", supersedes=old)
+    contents = [r["content"] for r in conn.execute("SELECT content FROM v_active_memories")]
+    assert "fact v2" in contents and "fact v1" not in contents
+
+
+def test_backlog_view_tracks_unconsolidated_only(conn):
+    done = store.remember(conn, "raw episode", mtype="episodic")
+    store.promote(conn, done, "semantic")
+    store.remember(conn, "another episode", mtype="episodic")
+    backlog = [r["content"] for r in conn.execute("SELECT content FROM v_consolidation_backlog")]
+    assert backlog == ["another episode"]
+
+
+def test_edges_named_view(conn):
+    graph.link(conn, "Alice", "payments-service", rel="maintains")
+    row = conn.execute("SELECT * FROM v_edges_named").fetchone()
+    assert (row["src_name"], row["rel"], row["dst_name"]) == ("Alice", "maintains", "payments-service")
+
+
+def test_hot_queries_use_their_indexes(conn):
+    dedup_plan = " ".join(
+        r[3] for r in conn.execute(
+            "EXPLAIN QUERY PLAN SELECT content FROM memories WHERE origin_session = ?", ("s",)
+        )
+    )
+    assert "idx_memories_origin_session" in dedup_plan
+    entity_plan = " ".join(
+        r[3] for r in conn.execute(
+            "EXPLAIN QUERY PLAN SELECT * FROM entities WHERE name = ? COLLATE NOCASE", ("x",)
+        )
+    )
+    assert "idx_entities_name_nocase" in entity_plan
+
+
 def test_capture_hook_extracts_memos(tmp_path):
     transcript = tmp_path / "t.jsonl"
     lines = [

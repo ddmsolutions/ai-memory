@@ -72,8 +72,23 @@ CREATE TABLE IF NOT EXISTS edges (
 );
 
 CREATE INDEX IF NOT EXISTS idx_memories_type   ON memories(type, consolidated);
+CREATE INDEX IF NOT EXISTS idx_memories_origin_session ON memories(origin_session);
+CREATE INDEX IF NOT EXISTS idx_entities_name_nocase    ON entities(name COLLATE NOCASE);
 CREATE INDEX IF NOT EXISTS idx_edges_src       ON edges(src);
 CREATE INDEX IF NOT EXISTS idx_edges_dst       ON edges(dst);
+
+CREATE VIEW IF NOT EXISTS v_active_memories AS
+  SELECT * FROM memories WHERE superseded_by IS NULL;
+
+CREATE VIEW IF NOT EXISTS v_consolidation_backlog AS
+  SELECT * FROM v_active_memories WHERE type = 'episodic' AND consolidated = 0;
+
+CREATE VIEW IF NOT EXISTS v_edges_named AS
+  SELECT e.id, s.name AS src_name, s.etype AS src_etype, e.rel,
+         d.name AS dst_name, d.etype AS dst_etype, e.weight, e.memory_id, e.created_at
+    FROM edges e
+    JOIN entities s ON s.id = e.src
+    JOIN entities d ON d.id = e.dst;
 """
 
 

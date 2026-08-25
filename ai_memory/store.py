@@ -49,14 +49,13 @@ def search(
     limit: int = 20,
     include_superseded: bool = False,
 ) -> list[sqlite3.Row]:
+    table = "memories" if include_superseded else "v_active_memories"
     sql = (
-        "SELECT m.*, bm25(memories_fts) AS rank FROM memories_fts f"
-        " JOIN memories m ON m.id = f.rowid"
+        f"SELECT m.*, bm25(memories_fts) AS rank FROM memories_fts f"
+        f" JOIN {table} m ON m.id = f.rowid"
         " WHERE memories_fts MATCH ?"
     )
     params: list = [_fts_query(query)]
-    if not include_superseded:
-        sql += " AND m.superseded_by IS NULL"
     if mtype:
         sql += " AND m.type = ?"
         params.append(mtype)
@@ -92,18 +91,18 @@ def recall_pack(
                 break
         return out
 
-    base = "superseded_by IS NULL AND scope IN (?, 'global')"
+    base = "scope IN (?, 'global')"
     pinned = conn.execute(
-        f"SELECT * FROM memories WHERE pinned = 1 AND {base} ORDER BY created_at DESC",
+        f"SELECT * FROM v_active_memories WHERE pinned = 1 AND {base} ORDER BY created_at DESC",
         (scope,),
     ).fetchall()
     procedural = conn.execute(
-        f"SELECT * FROM memories WHERE type = 'procedural' AND {base}"
+        f"SELECT * FROM v_active_memories WHERE type = 'procedural' AND {base}"
         " ORDER BY confidence DESC, recall_count DESC, created_at DESC",
         (scope,),
     ).fetchall()
     semantic = conn.execute(
-        f"SELECT * FROM memories WHERE type = 'semantic' AND {base}"
+        f"SELECT * FROM v_active_memories WHERE type = 'semantic' AND {base}"
         " ORDER BY confidence DESC, created_at DESC",
         (scope,),
     ).fetchall()
@@ -169,8 +168,7 @@ def promote(
 
 def unconsolidated(conn: sqlite3.Connection, limit: int = 50) -> list[sqlite3.Row]:
     return conn.execute(
-        "SELECT * FROM memories WHERE type = 'episodic' AND consolidated = 0"
-        " AND superseded_by IS NULL ORDER BY created_at LIMIT ?",
+        "SELECT * FROM v_consolidation_backlog ORDER BY created_at LIMIT ?",
         (limit,),
     ).fetchall()
 
@@ -185,7 +183,7 @@ def status(conn: sqlite3.Connection) -> dict:
         "procedural": counts.get("procedural", 0),
         "pinned": conn.execute("SELECT COUNT(*) FROM memories WHERE pinned = 1").fetchone()[0],
         "unconsolidated": conn.execute(
-            "SELECT COUNT(*) FROM memories WHERE type='episodic' AND consolidated=0"
+            "SELECT COUNT(*) FROM v_consolidation_backlog"
         ).fetchone()[0],
         "entities": conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0],
         "edges": conn.execute("SELECT COUNT(*) FROM edges").fetchone()[0],

@@ -125,10 +125,22 @@ FTS5 virtual table over `memories.content` (external-content mode, `content_rowi
 | Index | On | Serves |
 |-------|----|--------|
 | `idx_memories_type` | memories(type, consolidated) | Consolidation backlog listing |
+| `idx_memories_origin_session` | memories(origin_session) | Capture dedup, the hottest query: runs on every Stop event |
+| `idx_entities_name_nocase` | entities(name COLLATE NOCASE) | Case-insensitive entity lookup; the BINARY unique index cannot serve a NOCASE comparison |
 | `idx_edges_src` / `idx_edges_dst` | edges(src) / edges(dst) | Neighbour queries in both directions |
 | `memories_fts` | content | All free-text search and task-relevant recall |
 
-Candidate-key uniques (`entities(name, etype)`, `edges(src, dst, rel)`) double as their lookup indexes.
+Candidate-key uniques (`entities(name, etype)`, `edges(src, dst, rel)`) double as their lookup indexes. Tests assert via `EXPLAIN QUERY PLAN` that the two hot-path indexes are actually used.
+
+## Views
+
+| View | Definition | Purpose |
+|------|-----------|---------|
+| `v_active_memories` | memories where `superseded_by IS NULL` | THE read surface for current truth. Search and recall go through it; the exclusion of corrected rows is defined once, not repeated per query. |
+| `v_consolidation_backlog` | active episodic rows with `consolidated = 0` | One definition of "what consolidation still owes", shared by `/memory consolidate` and `status`. |
+| `v_edges_named` | edges joined to src/dst entity names and types | Human-readable graph inspection in one query; stable surface for the future `why` command and viewer. |
+
+Views are read-only surfaces; all writes (insert, recall-counter bumps, supersession) go to the base tables.
 
 ## Design notes
 
