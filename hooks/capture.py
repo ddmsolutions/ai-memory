@@ -55,8 +55,10 @@ def main() -> int:
     if not memos:
         return 0
     try:
-        from ai_memory import db, store
+        from ai_memory import config, db, redact, store
 
+        cfg = config.load()
+        memos = [redact.redact(m, cfg["secret_patterns"])[0] for m in memos]
         conn = db.connect()
         already = {
             row["content"]

@@ -48,7 +48,7 @@ Extend capture so memos written by subagents are stored, not just main-loop turn
 
 ### Section 5: Secret filter on capture
 Redaction screen before any insert: common credential shapes (API key prefixes, bearer tokens, PEM blocks, high-entropy strings) are masked, with a test per pattern. A memory store must never hold a secret in plaintext.
-- Status: [ ] not started
+- Status: [x] complete (issue #6)
 
 ### Section 6: Turn-time recall
 UserPromptSubmit hook: FTS-match the user's prompt against the store, inject the top task-relevant memories for THIS turn. The highest-value item in the phase: recall becomes present when needed, not only at session start. Budget-capped via config; fail-soft.
