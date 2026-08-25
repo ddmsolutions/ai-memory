@@ -1,0 +1,13 @@
+{
+  "name": "ai-memory-marketplace",
+  "owner": {
+    "name": "DDM Solutions Ltd"
+  },
+  "plugins": [
+    {
+      "name": "ai-memory",
+      "source": "./",
+      "description": "Persistent memory for Claude Code: episodic, semantic, procedural, entity and prospective memory in a local-first SQLite store. Automatic capture, session-start and turn-time recall, subagent injection, secret redaction, decay, linting, and a full curation CLI."
+    }
+  ]
+}

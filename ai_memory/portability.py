@@ -109,6 +109,41 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
             "mentions": len(data.get("memory_entities", []))}
 
 
+_PROCEDURAL_MARKERS = (
+    "always", "never", "must", "don't", "do not", "avoid", "prefer", "use ",
+    "run ", "check ", "before ", "ensure",
+)
+
+
+def seed_from_markdown(
+    conn: sqlite3.Connection, path: Path, scope: str = "global"
+) -> dict:
+    """FR-X3: onboarding importer. Bullet lines from an existing CLAUDE.md or
+    notes file become memories: rule-shaped lines procedural, the rest semantic.
+    Dedup by content; goes through remember() so redaction applies."""
+    from . import store
+
+    text = Path(path).read_text(encoding="utf-8")
+    imported = skipped = 0
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not (line.startswith(("- ", "* ")) and len(line) > 15):
+            continue
+        content = line[2:].strip().lstrip("*").strip()
+        if not content or content.startswith(("[", "#")):
+            continue
+        if conn.execute(
+            "SELECT 1 FROM memories WHERE content = ? AND scope = ?", (content, scope)
+        ).fetchone():
+            skipped += 1
+            continue
+        lowered = content.lower()
+        mtype = "procedural" if any(m in lowered for m in _PROCEDURAL_MARKERS) else "semantic"
+        store.remember(conn, content, mtype=mtype, scope=scope)
+        imported += 1
+    return {"imported": imported, "skipped": skipped}
+
+
 def export_to_file(conn: sqlite3.Connection, path: Path) -> None:
     Path(path).write_text(json.dumps(export_store(conn), indent=1), encoding="utf-8")
 

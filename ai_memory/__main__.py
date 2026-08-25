@@ -117,6 +117,9 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--out", type=Path, help="write to file (default: stdout)")
     im = sub.add_parser("import", help="import an export file (deduplicating)")
     im.add_argument("file", type=Path)
+    sd = sub.add_parser("seed", help="seed the store from an existing CLAUDE.md or notes file")
+    sd.add_argument("file", type=Path)
+    sd.add_argument("--scope", default="global")
 
     pg = sub.add_parser("purge", help="erase everything about an entity or session (hard delete)")
     pg.add_argument("--entity")
@@ -255,6 +258,11 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
+    elif args.command == "seed":
+        from . import portability
+
+        report = portability.seed_from_markdown(conn, args.file, scope=args.scope)
+        print(f"seeded {report['imported']} memories, skipped {report['skipped']} existing")
     elif args.command == "purge":
         try:
             report = graph.purge_subject(

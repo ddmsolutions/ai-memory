@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Distribution pack: marketplace manifest for `/plugin marketplace add ddmsolutions/ai-memory`, CONTRIBUTING.md, and `seed` onboarding importer (CLAUDE.md bullets to typed memories, deduped, redacted) (#33)
+
 - Optional embedding layer (schema v7): Ollama-compatible local model, `embed-index` CLI, hybrid search with FTS results leading; disabled by default, any failure degrades silently to FTS-only, quarantined rows never embedded (#32)
 
 - Subagent spawn injection: PreToolUse hook on Task appends a small scoped pack (compiled against the subagent's own prompt) via updatedInput; spawn_pack_limit 0 disables (#31)

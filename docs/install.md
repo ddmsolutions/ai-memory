@@ -16,7 +16,12 @@ The database lives at `~/.ai-memory/memory.db`. Point `AI_MEMORY_DB` at another 
 
 ### As a plugin
 
-Add the repo as a plugin (marketplace or local path per the Claude Code plugin docs). The plugin ships:
+```
+/plugin marketplace add ddmsolutions/ai-memory
+/plugin install ai-memory
+```
+
+Or add the repo as a local-path plugin per the Claude Code plugin docs. The plugin ships:
 
 - `hooks/hooks.json`: SessionStart recall injection + Stop capture
 - `commands/memory.md`: the `/memory` command (status, search, remember, consolidate, forget, pin, entity)
@@ -62,7 +67,15 @@ Capture works by scanning the transcript for fenced memo blocks. Add a line like
 
 > When a turn establishes something worth remembering (a decision, a fact, a correction, a lesson), end the reply with a fenced ` ```memo ` block containing a one-line outcome. Only when the turn earned it.
 
-## 5. Verify
+## 5. Seed from what you already have (optional)
+
+```bash
+python -m ai_memory seed path/to/CLAUDE.md [--scope my-project]
+```
+
+Bullet lines become memories: rule-shaped lines procedural, the rest semantic; re-running skips existing rows.
+
+## 6. Verify
 
 ```bash
 python -m ai_memory remember --type semantic "ai-memory installed on this machine"
