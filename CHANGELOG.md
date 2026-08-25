@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v0.3.0 - 2026-08-25
+
+Richer memory: a fifth memory type, associative structure, measurement, and hardened trust boundaries.
 
 ### Fixed (cold code review before release)
 - Quarantine now enforced at the read layer (schema v8): v_active_memories excludes the quarantine scope, closing confirmed escapes via graph mention lines, memory links, and default search; review remains via lint (truncated, labelled untrusted)
