@@ -159,6 +159,29 @@ def purge_subject(
     return report
 
 
+def task_neighbourhood(conn: sqlite3.Connection, task: str, cap: int) -> list[str]:
+    """FR-N3: graph lines for entities the task mentions, budget-capped.
+    Entity match is name-substring against the task, so multi-word names work."""
+    if cap <= 0 or not task:
+        return []
+    task_lower = task.lower()
+    lines: list[str] = []
+    for ent in conn.execute("SELECT * FROM entities ORDER BY length(name) DESC"):
+        if ent["name"].lower() not in task_lower:
+            continue
+        for n in neighbours(conn, ent["name"])[:3]:
+            arrow = "->" if n["direction"] == "out" else "<-"
+            lines.append(f"- {ent['name']} {arrow} {n['rel']} {arrow} {n['other']} ({n['other_type']})")
+            if len(lines) >= cap:
+                return lines
+        about = memories_about(conn, ent["name"])[:1]
+        if about:
+            lines.append(f"- about {ent['name']}: {about[0]['content']}")
+            if len(lines) >= cap:
+                return lines
+    return lines
+
+
 def describe(conn: sqlite3.Connection, name: str) -> str:
     """One-paragraph markdown summary of an entity and its relationships."""
     ent = find_entity(conn, name)
