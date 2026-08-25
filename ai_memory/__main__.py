@@ -87,6 +87,11 @@ def build_parser() -> argparse.ArgumentParser:
     w = sub.add_parser("why", help="explain a memory: origin, lineage, corrections, usage")
     w.add_argument("id", type=int)
 
+    ex = sub.add_parser("export", help="export the full store as JSON")
+    ex.add_argument("--out", type=Path, help="write to file (default: stdout)")
+    im = sub.add_parser("import", help="import an export file (deduplicating)")
+    im.add_argument("file", type=Path)
+
     pg = sub.add_parser("purge", help="erase everything about an entity or session (hard delete)")
     pg.add_argument("--entity")
     pg.add_argument("--session")
@@ -170,6 +175,22 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"#{row['id']} [{row['type']}] {row['content']}")
     elif args.command == "why":
         print(store.why(conn, args.id))
+    elif args.command == "export":
+        from . import portability
+
+        if args.out:
+            portability.export_to_file(conn, args.out)
+            print(f"exported to {args.out}")
+        else:
+            print(json.dumps(portability.export_store(conn), indent=1))
+    elif args.command == "import":
+        from . import portability
+
+        try:
+            print(json.dumps(portability.import_from_file(conn, args.file)))
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
     elif args.command == "purge":
         try:
             report = graph.purge_subject(

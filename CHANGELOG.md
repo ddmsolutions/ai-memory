@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Export / import: full-store JSON, verbatim rows, dedup on re-import, all internal references (lineage, corrections, edges, mentions) remapped; lossless round trip proven by test (#29)
+
 - `why <id>`: a memory's full story - origin session, promotion lineage both directions, correction chain, valence, mentions, usage (#28)
 
 - Mentions bridge (schema v4): `memory_entities` join table, `entity mention` / `entity about` CLI, `v_entity_memories` view (#25)
