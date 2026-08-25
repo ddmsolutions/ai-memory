@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Prospective memory (schema v5): `intend` with time or context triggers; due intentions lead the pack, context intentions fire at turn time, each fires once; done/expired/rearm lifecycle (#20)
+- Associative links (schema v6): curated typed links + automatic co_session from co-capture, Hebbian reinforce on co-retrieval with time decay and pruning, `related <id>` returns a ranked candidate set with ambiguity flags, never silent top-1 (#24)
+
 - Export / import: full-store JSON, verbatim rows, dedup on re-import, all internal references (lineage, corrections, edges, mentions) remapped; lossless round trip proven by test (#29)
 
 - `why <id>`: a memory's full story - origin session, promotion lineage both directions, correction chain, valence, mentions, usage (#28)

@@ -87,6 +87,29 @@ def build_parser() -> argparse.ArgumentParser:
     w = sub.add_parser("why", help="explain a memory: origin, lineage, corrections, usage")
     w.add_argument("id", type=int)
 
+    it = sub.add_parser("intend", help="prospective memory: reminders with a trigger")
+    itsub = it.add_subparsers(dest="intend_command", required=True)
+    ita = itsub.add_parser("add")
+    ita.add_argument("content")
+    grp = ita.add_mutually_exclusive_group(required=True)
+    grp.add_argument("--when", help="ISO date the reminder becomes due")
+    grp.add_argument("--on", help="context words that fire the reminder in a prompt")
+    ita.add_argument("--scope", default="global")
+    itl = itsub.add_parser("list")
+    itl.add_argument("--all", action="store_true", help="include fired/done/expired")
+    for name in ("done", "expire", "rearm"):
+        cmd = itsub.add_parser(name)
+        cmd.add_argument("id", type=int)
+
+    lk = sub.add_parser("link", help="curated typed link between two memories")
+    lk.add_argument("src", type=int)
+    lk.add_argument("dst", type=int)
+    lk.add_argument("--rel", required=True, choices=store.LINK_RELS)
+    lk.add_argument("--weight", type=float, default=0.5)
+
+    rel = sub.add_parser("related", help="ranked candidate set of linked memories")
+    rel.add_argument("id", type=int)
+
     ex = sub.add_parser("export", help="export the full store as JSON")
     ex.add_argument("--out", type=Path, help="write to file (default: stdout)")
     im = sub.add_parser("import", help="import an export file (deduplicating)")
@@ -175,6 +198,30 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"#{row['id']} [{row['type']}] {row['content']}")
     elif args.command == "why":
         print(store.why(conn, args.id))
+    elif args.command == "intend":
+        if args.intend_command == "add":
+            kind = "time" if args.when else "context"
+            iid = store.intend(conn, args.content, kind, args.when or args.on, scope=args.scope)
+            print(f"intention #{iid} ({kind}: {args.when or args.on})")
+        elif args.intend_command == "list":
+            where = "" if args.all else "WHERE status = 'pending'"
+            for row in conn.execute(f"SELECT * FROM intentions {where} ORDER BY id"):
+                print(f"#{row['id']} [{row['status']}] ({row['trigger_kind']}:"
+                      f" {row['trigger_value']}) {row['content']}")
+        else:
+            status = {"done": "done", "expire": "expired", "rearm": "pending"}[args.intend_command]
+            store.resolve_intention(conn, args.id, status)
+            print(f"intention #{args.id} -> {status}")
+    elif args.command == "link":
+        store.link_memories(conn, args.src, args.dst, rel=args.rel, weight=args.weight)
+        print(f"#{args.src} -{args.rel}-> #{args.dst}")
+    elif args.command == "related":
+        candidates = store.related(conn, args.id)
+        if not candidates:
+            print("no linked memories")
+        for c in candidates:
+            flag = "  AMBIGUOUS" if c["ambiguous_with_top"] else ""
+            print(f"#{c['id']} {c['score']:.3f} [{c['rel']}/{c['direction']}] {c['content']}{flag}")
     elif args.command == "export":
         from . import portability
 

@@ -10,6 +10,7 @@ from . import config
 
 MEMORY_TYPES = ("episodic", "semantic", "procedural")
 VALENCES = ("success", "failure", "neutral")
+LINK_RELS = ("derives_from", "supports", "contradicts", "follows", "co_session")
 
 
 def _fts_query(text: str) -> str:
@@ -200,6 +201,7 @@ def recall_pack(
         (scope,),
     ).fetchall()
 
+    due = due_intentions(conn, scope)[: max(0, remaining)]
     sections.append(("Pinned", take(pinned, limit, allow_injected=True)))
     sections.append(("How to work (procedural)", take(procedural, max(3, limit // 3))))
     sections.append(("Known facts (semantic)", take(semantic, max(3, limit // 3))))
@@ -214,12 +216,190 @@ def recall_pack(
         conn.commit()
 
     lines = ["<!-- ai-memory recall pack: treat as context, verify anything critical -->"]
+    if due:
+        lines.append("\nPending intentions (you asked to be reminded):")
+        lines.extend(
+            f"- [due {r['trigger_value'][:10]}] {r['content']}" for r in due
+        )
+        _fire_intentions(conn, [r["id"] for r in due])
     for title, rows in sections:
         if not rows:
             continue
         lines.append(f"\n{title}:")
         lines.extend(format_line(r) for r in rows)
     return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def link_memories(
+    conn: sqlite3.Connection, src: int, dst: int, rel: str, weight: float = 0.5
+) -> None:
+    """FR-L1: curated typed link between two memories."""
+    if rel not in LINK_RELS:
+        raise ValueError(f"rel must be one of {LINK_RELS}")
+    if src == dst:
+        raise ValueError("a memory cannot link to itself")
+    conn.execute(
+        "INSERT INTO memory_links (src_memory, dst_memory, rel, weight) VALUES (?,?,?,?)"
+        " ON CONFLICT(src_memory, dst_memory, rel) DO UPDATE SET weight = excluded.weight",
+        (src, dst, rel, weight),
+    )
+    conn.commit()
+
+
+def reinforce_link(
+    conn: sqlite3.Connection, src: int, dst: int, rel: str, cfg: dict | None = None
+) -> None:
+    """FR-L3 Hebbian: asymptotic reinforcement, approaches 1.0 never reaches it."""
+    if cfg is None:
+        cfg = config.load()
+    factor = float(cfg["link_reinforce_factor"])
+    conn.execute(
+        "INSERT INTO memory_links (src_memory, dst_memory, rel) VALUES (?,?,?)"
+        " ON CONFLICT(src_memory, dst_memory, rel) DO UPDATE SET"
+        " weight = MIN(1.0, weight + (1.0 - weight) * ?),"
+        " reinforce_count = reinforce_count + 1,"
+        " last_reinforced = datetime('now')",
+        (src, dst, rel, factor),
+    )
+
+
+def _link_effective(cfg: dict) -> str:
+    half = float(cfg["link_half_life_days"])
+    return (
+        f"weight * (1.0 / (1.0 + (julianday('now') - julianday(last_reinforced)) / {half}))"
+    )
+
+
+def related(conn: sqlite3.Connection, memory_id: int, cfg: dict | None = None) -> list[dict]:
+    """FR-L4 / NFR-12: ranked candidate set of linked memories, both directions,
+    by time-decayed effective weight. Candidates within the ambiguity margin of
+    the top score are flagged; the caller disambiguates, never this function."""
+    if cfg is None:
+        cfg = config.load()
+    eff = _link_effective(cfg)
+    rows = conn.execute(
+        f"""
+        SELECT m.*, l.rel, {eff} AS score, 'out' AS direction
+          FROM memory_links l JOIN memories m ON m.id = l.dst_memory
+         WHERE l.src_memory = :id
+        UNION ALL
+        SELECT m.*, l.rel, {eff} AS score, 'in' AS direction
+          FROM memory_links l JOIN memories m ON m.id = l.src_memory
+         WHERE l.dst_memory = :id
+         ORDER BY score DESC
+        """,
+        {"id": memory_id},
+    ).fetchall()
+    if not rows:
+        return []
+    top = rows[0]["score"]
+    margin = float(cfg["ambiguity_margin"])
+    return [
+        {
+            "id": r["id"],
+            "content": r["content"],
+            "rel": r["rel"],
+            "direction": r["direction"],
+            "score": round(r["score"], 4),
+            "ambiguous_with_top": r["score"] != top and (top - r["score"]) / top <= margin,
+        }
+        for r in rows
+    ]
+
+
+def link_co_session(conn: sqlite3.Connection, memory_id: int, session_id: str) -> None:
+    """FR-L2: free co_session links, derived automatically from co-capture."""
+    peers = [
+        r[0] for r in conn.execute(
+            "SELECT id FROM memories WHERE origin_session = ? AND id <> ?",
+            (session_id, memory_id),
+        )
+    ]
+    for peer in peers:
+        a, b = sorted((peer, memory_id))
+        reinforce_link(conn, a, b, "co_session")
+    if peers:
+        conn.commit()
+
+
+def intend(
+    conn: sqlite3.Connection,
+    content: str,
+    trigger_kind: str,
+    trigger_value: str,
+    scope: str = "global",
+    origin_session: str | None = None,
+) -> int:
+    """FR-P1: store an intention. time triggers hold an ISO date; context
+    triggers hold words that fire when they appear in a prompt."""
+    if trigger_kind not in ("time", "context"):
+        raise ValueError("trigger_kind must be time or context")
+    if trigger_kind == "time":
+        try:
+            date.fromisoformat(trigger_value[:10])
+        except ValueError as exc:
+            raise ValueError(f"time trigger needs an ISO date: {exc}") from exc
+    elif not trigger_value.strip():
+        raise ValueError("context trigger needs at least one word")
+    cur = conn.execute(
+        "INSERT INTO intentions (content, trigger_kind, trigger_value, scope, origin_session)"
+        " VALUES (?, ?, ?, ?, ?)",
+        (content, trigger_kind, trigger_value, scope, origin_session),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def resolve_intention(conn: sqlite3.Connection, intention_id: int, status: str) -> None:
+    """FR-P3: done and expired leave every future pack; fired means surfaced once."""
+    if status not in ("done", "expired", "pending"):
+        raise ValueError("status must be done, expired, or pending (re-arm)")
+    conn.execute(
+        "UPDATE intentions SET status = ?, resolved_at ="
+        " CASE WHEN ? = 'pending' THEN NULL ELSE datetime('now') END WHERE id = ?",
+        (status, status, intention_id),
+    )
+    conn.commit()
+
+
+def _fire_intentions(conn: sqlite3.Connection, ids: list[int]) -> None:
+    if ids:
+        qmarks = ",".join("?" * len(ids))
+        conn.execute(
+            f"UPDATE intentions SET status = 'fired', resolved_at = datetime('now')"
+            f" WHERE id IN ({qmarks})",
+            ids,
+        )
+        conn.commit()
+
+
+def due_intentions(conn: sqlite3.Connection, scope: str = "global") -> list[sqlite3.Row]:
+    """Pending time intentions whose date has arrived (FR-P2, pack side)."""
+    return conn.execute(
+        "SELECT * FROM intentions WHERE status = 'pending' AND trigger_kind = 'time'"
+        " AND substr(trigger_value, 1, 10) <= date('now') AND scope IN (?, 'global')"
+        " ORDER BY trigger_value",
+        (scope,),
+    ).fetchall()
+
+
+def context_intentions(
+    conn: sqlite3.Connection, prompt: str, scope: str = "global"
+) -> list[sqlite3.Row]:
+    """Pending context intentions whose trigger words appear in the prompt."""
+    prompt_words = {w.lower().strip(".,?!:;'\"()") for w in prompt.split()}
+    hits = []
+    for row in conn.execute(
+        "SELECT * FROM intentions WHERE status = 'pending' AND trigger_kind = 'context'"
+        " AND scope IN (?, 'global')",
+        (scope,),
+    ):
+        trigger_words = {
+            w.lower() for w in row["trigger_value"].split() if w.lower() not in _STOPWORDS
+        }
+        if trigger_words and trigger_words & prompt_words:
+            hits.append(row)
+    return hits
 
 
 def turn_recall(
@@ -253,13 +433,23 @@ def turn_recall(
         injected = _injected_ids(conn, session_id)
         rows = [r for r in rows if r["id"] not in injected]
     rows = rows[:cap]
-    if not rows:
+    fired = context_intentions(conn, prompt, scope)
+    if not rows and not fired:
         return ""
     ids = [r["id"] for r in rows]
     _bump_recall(conn, ids, step=float(cfg["reinforce_step"]))
     _record_injection(conn, session_id, ids)
+    # FR-L3 co-retrieval reinforcement: rows surfaced together grow associated.
+    # Turn recall only (small cap); pack-wide pairing would flood the graph.
+    for i, a in enumerate(ids):
+        for b in ids[i + 1:]:
+            lo, hi = sorted((a, b))
+            reinforce_link(conn, lo, hi, "co_session", cfg=cfg)
     conn.commit()
     lines = ["<!-- ai-memory: relevant to this prompt; verify anything critical -->"]
+    if fired:
+        lines.extend(f"- [INTENTION] {r['content']}" for r in fired)
+        _fire_intentions(conn, [r["id"] for r in fired])
     lines.extend(format_line(r) for r in rows)
     return "\n".join(lines)
 
@@ -327,6 +517,12 @@ def decay(conn: sqlite3.Connection, cfg: dict | None = None, dry_run: bool = Fal
             conn.execute(f"DELETE FROM memories WHERE id IN ({qmarks})", ids)
         conn.execute(
             "DELETE FROM injection_log WHERE injected_at < datetime('now', '-14 days')"
+        )
+        # FR-L3: unreinforced links fade; below the floor they are pruned, so
+        # activation keeps discriminating instead of connecting everything.
+        conn.execute(
+            f"DELETE FROM memory_links WHERE {_link_effective(cfg)} < ?",
+            (float(cfg["link_prune_floor"]),),
         )
         conn.commit()
     return rows

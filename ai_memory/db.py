@@ -93,7 +93,7 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
@@ -138,6 +138,39 @@ MIGRATIONS: dict[int, list[str]] = {
         "  FROM memory_entities me"
         "  JOIN entities e ON e.id = me.entity_id"
         "  JOIN memories m ON m.id = me.memory_id",
+    ],
+    5: [
+        # FR-P1: prospective memory. Its own table: intentions have a trigger
+        # and a terminal lifecycle, which the memories type CHECK cannot hold.
+        """CREATE TABLE IF NOT EXISTS intentions (
+             id            INTEGER PRIMARY KEY,
+             content       TEXT NOT NULL,
+             trigger_kind  TEXT NOT NULL CHECK (trigger_kind IN ('time','context')),
+             trigger_value TEXT NOT NULL,
+             scope         TEXT NOT NULL DEFAULT 'global',
+             status        TEXT NOT NULL DEFAULT 'pending'
+                           CHECK (status IN ('pending','fired','done','expired')),
+             origin_session TEXT,
+             created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+             resolved_at   TEXT
+           )""",
+        "CREATE INDEX IF NOT EXISTS ix_intentions_pending ON intentions(status, trigger_kind)",
+    ],
+    6: [
+        # FR-L1..L3: associative links between memories, curated + auto co_session,
+        # Hebbian weights that reinforce on co-retrieval and decay unreinforced.
+        """CREATE TABLE IF NOT EXISTS memory_links (
+             src_memory      INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+             dst_memory      INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+             rel             TEXT NOT NULL CHECK (rel IN
+                             ('derives_from','supports','contradicts','follows','co_session')),
+             weight          REAL NOT NULL DEFAULT 0.3 CHECK (weight > 0 AND weight <= 1),
+             reinforce_count INTEGER NOT NULL DEFAULT 1,
+             last_reinforced TEXT NOT NULL DEFAULT (datetime('now')),
+             created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+             PRIMARY KEY (src_memory, dst_memory, rel)
+           )""",
+        "CREATE INDEX IF NOT EXISTS ix_links_dst ON memory_links(dst_memory)",
     ],
 }
 
