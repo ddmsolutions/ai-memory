@@ -32,7 +32,7 @@ Build order (one feature branch each, in this sequence; foundations before featu
 
 ### Section 1: CI
 GitHub Actions workflow: pytest on push and PR, Python 3.10 and 3.12, README badge. Guardrail before anything else changes.
-- Status: [ ] not started
+- Status: [x] complete (issue #2)
 
 ### Section 2: Schema versioning and migrations
 `PRAGMA user_version` plus a small ordered-migration runner in `db.py`. Required BEFORE dogfooding starts: the next schema change must not strand a live store. Test: create at old version, migrate, verify.

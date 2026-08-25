@@ -1,5 +1,7 @@
 # ai-memory
 
+[![CI](https://github.com/ddmsolutions/ai-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/ddmsolutions/ai-memory/actions/workflows/ci.yml)
+
 Persistent memory for Claude Code. A bolt-on plugin that gives every session four kinds of memory, stored locally in SQLite, captured and recalled automatically through hooks.
 
 Claude Code forgets everything between sessions. This plugin fixes that with a memory pipeline modelled on how human memory actually works:
