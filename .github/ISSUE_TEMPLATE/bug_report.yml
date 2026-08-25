@@ -1,0 +1,64 @@
+name: Bug report
+description: Something behaves wrongly, crashes, or corrupts data
+title: "fix: <short description>"
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Output of `python -m ai_memory version`, or the commit hash.
+      placeholder: 0.1.0 / 0f9e654
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Python version and OS.
+      placeholder: Python 3.12, Windows 11
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Engine (store / db / schema)
+        - Entity graph
+        - CLI
+        - Capture hook (Stop)
+        - Recall hook (SessionStart)
+        - Plugin wiring / install
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands or hook events, in order. A minimal reproduction beats a description.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Copy-paste the exact error output. Do not summarise or paraphrase error messages.
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      description: Memory stores hold personal data. Reports must not leak yours.
+      options:
+        - label: This report contains no real memory content, secrets, or personal data (use synthetic examples).
+          required: true

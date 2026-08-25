@@ -1,0 +1,45 @@
+name: Feature request
+description: Propose an enhancement or new capability
+title: "feat: <short description>"
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What real situation does this solve? Describe the moment memory failed you, not the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: What should happen, observably. Include the CLI or hook surface if you have one in mind.
+    validations:
+      required: true
+  - type: dropdown
+    id: memory-type
+    attributes:
+      label: Memory type affected
+      options:
+        - Episodic
+        - Semantic
+        - Procedural
+        - Entity graph
+        - Cross-cutting (capture / recall / consolidation)
+        - New type
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Fit with the project constraints
+      options:
+        - label: I checked docs/roadmap.md and this is not already planned or deliberately rejected.
+          required: true
+        - label: I understand the engine takes no runtime dependencies (Python stdlib + SQLite only); optional layers must fail soft.
+          required: true
