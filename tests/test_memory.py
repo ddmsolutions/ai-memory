@@ -39,6 +39,7 @@ def test_recall_pack_priorities_and_counting(conn):
     store.remember(conn, "Fixed the billing bug today", mtype="episodic")
     pack = store.recall_pack(conn, task="billing")
     assert "Pinned" in pack and "Never push" in pack
+    assert "- [20" in pack  # every line carries its recorded date (staleness discount)
     assert "procedural" in pack and "semantic" in pack.lower()
     assert "billing" in pack
     counted = conn.execute("SELECT COUNT(*) FROM memories WHERE recall_count > 0").fetchone()[0]

@@ -129,7 +129,7 @@ def recall_pack(
         if not rows:
             continue
         lines.append(f"\n{title}:")
-        lines.extend(f"- {r['content']}" for r in rows)
+        lines.extend(f"- [{r['created_at'][:10]}] {r['content']}" for r in rows)
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
