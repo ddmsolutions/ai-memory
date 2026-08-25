@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Subagent spawn injection: PreToolUse hook on Task appends a small scoped pack (compiled against the subagent's own prompt) via updatedInput; spawn_pack_limit 0 disables (#31)
+- Proactive skill: description-routed skills/remembering routes save (memo/typed/correction/reminder) and consult (search/about/why) without the user typing /memory (#30)
+
 - Memory linter: `lint` reports duplicates, overdue facts, stale rules, unresolved contradictions, quarantine backlog, weak evidence; decay now applies the evidence-decay confidence penalty to rules whose source episode ages out (#23)
 - Graph-aware recall: task packs gain a budget-capped Known connections section from the entity neighbourhood (#27)
 

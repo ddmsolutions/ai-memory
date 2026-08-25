@@ -19,6 +19,7 @@ DEFAULTS: dict = {
     "turn_recall_min_score": 0.0,  # bm25 relevance floor; 0 = off (tune via eval harness)
     "decay_window_days": 30,       # episodics older than this may decay
     "reinforce_step": 0.05,        # confidence bump per recall, capped at 1.0
+    "spawn_pack_limit": 6,         # rows injected into a spawned subagent's prompt; 0 disables
     "link_half_life_days": 45.0,   # associative link weight decay
     "link_reinforce_factor": 0.15, # Hebbian: weight += (1 - weight) * factor
     "link_prune_floor": 0.02,      # effective weight below this is pruned at decay
