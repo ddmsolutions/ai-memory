@@ -13,18 +13,17 @@ Claude Code forgets everything between sessions. This plugin fixes that with a m
 
 ## How it works
 
-```
-capture                consolidate                recall
-Stop hook  ──────▶  episodic store  ──────▶  semantic + procedural  ──────▶  SessionStart hook
-(end of session)    (raw, decays)   (batch)  (durable, promoted)    (inject)  (compiled pack)
-                                                     │
-                                              entity graph
-                                        (extracted people/projects/links)
+```mermaid
+flowchart LR
+    stop["Stop hook<br/>captures memo blocks<br/>each turn, deduped"] --> epi["episodic store<br/>raw, decays"]
+    epi -->|"/memory consolidate<br/>distil + promote"| durable["semantic + procedural<br/>durable, promoted"]
+    cli["/memory entity"] --> kg["entity graph"]
+    durable --> pack["compiled recall pack"] --> ss["SessionStart hook<br/>injects as context"]
 ```
 
-1. **Capture**: a Stop hook writes session outcomes into the episodic store. Zero effort during the session.
-2. **Consolidate**: a batch pass distils raw episodes into durable semantic facts and procedural lessons, and extracts entities and relationships into the graph. Episodes decay; what matters gets promoted.
-3. **Recall**: a SessionStart hook compiles a compact recall pack (pinned facts, top lessons, task-relevant memories) and injects it as context, so every new session starts already knowing you.
+1. **Capture**: a Stop hook scans each turn for fenced memo blocks and writes them into the episodic store, deduplicated per session. Zero effort during the session.
+2. **Consolidate**: a batch pass (`/memory consolidate`) distils raw episodes into durable semantic facts and procedural lessons, keeping the promotion lineage. Episodes decay; what matters gets promoted. The entity graph is maintained via `/memory entity` (automatic extraction is on the roadmap).
+3. **Recall**: a SessionStart hook compiles a compact recall pack (pinned facts, top lessons, known facts) and injects it as context, so every new session starts already knowing you.
 
 ## Install
 
