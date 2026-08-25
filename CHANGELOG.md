@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed (cold code review before release)
+- Quarantine now enforced at the read layer (schema v8): v_active_memories excludes the quarantine scope, closing confirmed escapes via graph mention lines, memory links, and default search; review remains via lint (truncated, labelled untrusted)
+- Intentions go through the same redaction + instruction screen as memories; instruction-shaped reminders are refused
+- Export now carries memory_links, intentions, and embeddings (was silent data loss); import screens instruction-shaped rows into quarantine; seed screens lines
+- Sessionless pack compiles (CLI preview, spawn injection) no longer fire intentions or bump recall counters
+- Evidence-decay penalty now fires on forget of a promoted source (was unreachable); purge erases matching intentions; pack budget includes intention lines; entity graph matching is word-boundary; embedding hits survive the turn-recall threshold
+
 - Distribution pack: marketplace manifest for `/plugin marketplace add ddmsolutions/ai-memory`, CONTRIBUTING.md, and `seed` onboarding importer (CLAUDE.md bullets to typed memories, deduped, redacted) (#33)
 
 - Optional embedding layer (schema v7): Ollama-compatible local model, `embed-index` CLI, hybrid search with FTS results leading; disabled by default, any failure degrades silently to FTS-only, quarantined rows never embedded (#32)

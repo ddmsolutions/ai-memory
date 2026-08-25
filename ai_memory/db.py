@@ -93,7 +93,7 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
@@ -181,6 +181,24 @@ MIGRATIONS: dict[int, list[str]] = {
              vector     TEXT NOT NULL,
              created_at TEXT NOT NULL DEFAULT (datetime('now'))
            )""",
+    ],
+    8: [
+        # Review fix: quarantine is enforced at the READ layer. One predicate,
+        # one place; every recall surface (search, pack, related, graph lines)
+        # reads through these views. Review paths (lint, raw table) still see
+        # quarantined rows deliberately.
+        "DROP VIEW IF EXISTS v_consolidation_backlog",
+        "DROP VIEW IF EXISTS v_entity_memories",
+        "DROP VIEW IF EXISTS v_active_memories",
+        "CREATE VIEW v_active_memories AS"
+        "  SELECT * FROM memories WHERE superseded_by IS NULL AND scope <> 'quarantine'",
+        "CREATE VIEW v_consolidation_backlog AS"
+        "  SELECT * FROM v_active_memories WHERE type = 'episodic' AND consolidated = 0",
+        "CREATE VIEW v_entity_memories AS"
+        "  SELECT e.name AS entity_name, e.etype, m.*"
+        "  FROM memory_entities me"
+        "  JOIN entities e ON e.id = me.entity_id"
+        "  JOIN v_active_memories m ON m.id = me.memory_id",
     ],
 }
 

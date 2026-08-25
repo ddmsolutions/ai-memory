@@ -97,11 +97,13 @@ def search(
             from . import embeddings
 
             have = {r["id"] for r in rows}
-            for memory_id, _sim in embeddings.semantic_candidates(conn, query, cfg, limit * 2):
+            for memory_id, sim in embeddings.semantic_candidates(conn, query, cfg, limit * 2):
                 if memory_id in have:
                     continue
+                # rank sentinel: -(1 + cosine) so -rank stays positive and
+                # semantic hits survive a turn_recall_min_score threshold.
                 extra_sql = (
-                    "SELECT *, 0.0 AS rank FROM "
+                    f"SELECT *, {-(1.0 + float(sim))} AS rank FROM "
                     + ("memories" if include_superseded else "v_active_memories")
                     + " WHERE id = ?"
                 )
@@ -234,6 +236,7 @@ def recall_pack(
     ).fetchall()
 
     due = due_intentions(conn, scope)[: max(0, remaining)]
+    remaining -= len(due)  # intentions consume the same total budget (NFR-4)
     sections.append(("Pinned", take(pinned, limit, allow_injected=True)))
     sections.append(("How to work (procedural)", take(procedural, max(3, limit // 3))))
     sections.append(("Known facts (semantic)", take(semantic, max(3, limit // 3))))
@@ -248,7 +251,9 @@ def recall_pack(
         graph_lines = _graph.task_neighbourhood(conn, task, remaining)
         remaining -= len(graph_lines)
 
-    recalled = [i for i in picked if i not in already_injected]
+    # Sessionless compiles (CLI preview, spawn injection) must not distort
+    # reinforcement or decay exemption: counters move only for real sessions.
+    recalled = [i for i in picked if i not in already_injected] if session_id else []
     if recalled:
         _bump_recall(conn, recalled, step=float(cfg["reinforce_step"]))
         _record_injection(conn, session_id, recalled)
@@ -260,7 +265,10 @@ def recall_pack(
         lines.extend(
             f"- [due {r['trigger_value'][:10]}] {r['content']}" for r in due
         )
-        _fire_intentions(conn, [r["id"] for r in due])
+        # Fire only for a real session: a CLI preview or subagent spawn must
+        # not consume a reminder the user never saw (review finding).
+        if session_id:
+            _fire_intentions(conn, [r["id"] for r in due])
     for title, rows in sections:
         if not rows:
             continue
@@ -322,11 +330,11 @@ def related(conn: sqlite3.Connection, memory_id: int, cfg: dict | None = None) -
     rows = conn.execute(
         f"""
         SELECT m.*, l.rel, {eff} AS score, 'out' AS direction
-          FROM memory_links l JOIN memories m ON m.id = l.dst_memory
+          FROM memory_links l JOIN v_active_memories m ON m.id = l.dst_memory
          WHERE l.src_memory = :id
         UNION ALL
         SELECT m.*, l.rel, {eff} AS score, 'in' AS direction
-          FROM memory_links l JOIN memories m ON m.id = l.src_memory
+          FROM memory_links l JOIN v_active_memories m ON m.id = l.src_memory
          WHERE l.dst_memory = :id
          ORDER BY score DESC
         """,
@@ -383,6 +391,13 @@ def intend(
             raise ValueError(f"time trigger needs an ISO date: {exc}") from exc
     elif not trigger_value.strip():
         raise ValueError("context trigger needs at least one word")
+    # Review fix: intend is a second insert funnel and injects verbatim into
+    # packs; it gets the same redaction and instruction screen as remember.
+    from . import redact as _redact
+
+    content = _redact.redact(content, config.load().get("secret_patterns"))[0]
+    if _redact.screen_instructions(content):
+        raise ValueError("instruction-shaped content refused for an intention")
     cur = conn.execute(
         "INSERT INTO intentions (content, trigger_kind, trigger_value, scope, origin_session)"
         " VALUES (?, ?, ?, ?, ?)",
@@ -496,7 +511,20 @@ def turn_recall(
     return "\n".join(lines)
 
 
+def _penalise_children(conn: sqlite3.Connection, ids: list[int]) -> None:
+    """Evidence decay (FR-M3): rules outliving their deleted source lose standing."""
+    if not ids:
+        return
+    qmarks = ",".join("?" * len(ids))
+    conn.execute(
+        f"UPDATE memories SET confidence = MAX(0.1, confidence - 0.1)"
+        f" WHERE promoted_from IN ({qmarks})",
+        ids,
+    )
+
+
 def forget(conn: sqlite3.Connection, memory_id: int) -> None:
+    _penalise_children(conn, [memory_id])
     conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
     conn.commit()
 
@@ -556,13 +584,7 @@ def decay(conn: sqlite3.Connection, cfg: dict | None = None, dry_run: bool = Fal
         if rows:
             ids = [r["id"] for r in rows]
             qmarks = ",".join("?" * len(ids))
-            # Evidence decay (FR-M3): a rule outliving its source loses standing
-            # rather than persisting unchallenged.
-            conn.execute(
-                f"UPDATE memories SET confidence = MAX(0.1, confidence - 0.1)"
-                f" WHERE promoted_from IN ({qmarks})",
-                ids,
-            )
+            _penalise_children(conn, ids)
             conn.execute(f"DELETE FROM memories WHERE id IN ({qmarks})", ids)
         conn.execute(
             "DELETE FROM injection_log WHERE injected_at < datetime('now', '-14 days')"
@@ -614,7 +636,11 @@ def lint(conn: sqlite3.Connection) -> list[dict]:
     for row in conn.execute(
         "SELECT id, content FROM memories WHERE scope = 'quarantine'"
     ):
-        findings.append({"issue": "quarantined", "ids": str(row["id"]), "detail": row["content"]})
+        findings.append({
+            "issue": "quarantined", "ids": str(row["id"]),
+            # Never reprint hostile content in full: truncated and labelled.
+            "detail": f"[UNTRUSTED, truncated] {row['content'][:80]}",
+        })
     for row in conn.execute(
         "SELECT id, content, confidence FROM v_active_memories"
         " WHERE type IN ('semantic','procedural') AND confidence < 0.4"

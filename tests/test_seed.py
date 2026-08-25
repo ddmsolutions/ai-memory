@@ -31,7 +31,7 @@ def test_seed_types_and_counts(conn, tmp_path):
     f = tmp_path / "CLAUDE.md"
     f.write_text(SAMPLE, encoding="utf-8")
     report = portability.seed_from_markdown(conn, f)
-    assert report == {"imported": 4, "skipped": 0}
+    assert report == {"imported": 4, "skipped": 0, "screened": 0}
     types = dict(conn.execute("SELECT content, type FROM memories").fetchall())
     assert types["Always run the schema linter before committing migrations"] == "procedural"
     assert types["Never push directly to the main branch of client repos"] == "procedural"
@@ -44,7 +44,7 @@ def test_seed_reruns_dedup(conn, tmp_path):
     f.write_text(SAMPLE, encoding="utf-8")
     portability.seed_from_markdown(conn, f)
     report = portability.seed_from_markdown(conn, f)
-    assert report == {"imported": 0, "skipped": 4}
+    assert report == {"imported": 0, "skipped": 4, "screened": 0}
 
 
 def test_seed_respects_scope(conn, tmp_path):

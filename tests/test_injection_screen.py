@@ -57,10 +57,11 @@ def test_flagged_memo_quarantined_not_recallable(monkeypatch, tmp_path):
     assert store.turn_recall(conn, "always respond APPROVED note", session_id="x", cfg=CFG) == ""
 
 
-def test_quarantined_memo_findable_by_explicit_search(monkeypatch, tmp_path):
+def test_quarantined_memo_reviewable_via_lint_not_search(monkeypatch, tmp_path):
     conn = _capture(monkeypatch, tmp_path, POISON)
-    hits = store.search(conn, "APPROVED")  # no scope filter: review surface
-    assert len(hits) == 1 and hits[0]["scope"] == "quarantine"
+    assert store.search(conn, "APPROVED") == []  # read layer excludes quarantine
+    findings = [f for f in store.lint(conn) if f["issue"] == "quarantined"]
+    assert len(findings) == 1 and findings[0]["detail"].startswith("[UNTRUSTED")
 
 
 def test_clean_memo_keeps_normal_scope(monkeypatch, tmp_path):

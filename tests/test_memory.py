@@ -37,7 +37,7 @@ def test_recall_pack_priorities_and_counting(conn):
     store.remember(conn, "Run linters before commit", mtype="procedural")
     store.remember(conn, "Owner email is x@example.com", mtype="semantic")
     store.remember(conn, "Fixed the billing bug today", mtype="episodic")
-    pack = store.recall_pack(conn, task="billing")
+    pack = store.recall_pack(conn, task="billing", session_id="s1")
     assert "Pinned" in pack and "Never push" in pack
     assert "- [20" in pack  # every line carries its recorded date (staleness discount)
     assert "procedural" in pack and "semantic" in pack.lower()

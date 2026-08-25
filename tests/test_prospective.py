@@ -22,9 +22,9 @@ def conn(tmp_path):
 def test_time_intention_surfaces_when_due_and_fires_once(conn):
     past = (date.today() - timedelta(days=1)).isoformat()
     store.intend(conn, "rotate the OAuth token", "time", past)
-    pack = store.recall_pack(conn, cfg=CFG)
+    pack = store.recall_pack(conn, cfg=CFG, session_id="s1")
     assert "Pending intentions" in pack and "rotate the OAuth token" in pack
-    assert "Pending intentions" not in store.recall_pack(conn, cfg=CFG)  # fired once
+    assert "Pending intentions" not in store.recall_pack(conn, cfg=CFG, session_id="s2")  # fired once
 
 
 def test_future_intention_stays_silent(conn):
@@ -51,9 +51,9 @@ def test_done_and_expired_leave_all_packs(conn):
 def test_rearm_returns_to_pending(conn):
     past = (date.today() - timedelta(days=1)).isoformat()
     iid = store.intend(conn, "chase the invoice", "time", past)
-    store.recall_pack(conn, cfg=CFG)  # fires it
+    store.recall_pack(conn, cfg=CFG, session_id="s1")  # fires it
     store.resolve_intention(conn, iid, "pending")
-    assert "chase the invoice" in store.recall_pack(conn, cfg=CFG)
+    assert "chase the invoice" in store.recall_pack(conn, cfg=CFG, session_id="s2")
 
 
 def test_validation(conn):
@@ -68,5 +68,5 @@ def test_validation(conn):
 def test_scoped_intention_respects_scope(conn):
     past = (date.today() - timedelta(days=1)).isoformat()
     store.intend(conn, "projA-only reminder", "time", past, scope="proja")
-    assert "projA-only" not in store.recall_pack(conn, scope="projb", cfg=CFG)
-    assert "projA-only" in store.recall_pack(conn, scope="proja", cfg=CFG)
+    assert "projA-only" not in store.recall_pack(conn, scope="projb", cfg=CFG, session_id="s1")
+    assert "projA-only" in store.recall_pack(conn, scope="proja", cfg=CFG, session_id="s2")

@@ -56,6 +56,14 @@ All tunables live in `~/.ai-memory/config.json` (override the path with `AI_MEMO
 | `turn_recall_min_score` | 0.0 | bm25 relevance floor for turn recall; 0 = off |
 | `decay_window_days` | 30 | Episodics older than this may decay |
 | `reinforce_step` | 0.05 | Confidence bump per recall (cap 1.0) |
+| `spawn_pack_limit` | 6 | Rows injected into a spawned subagent's prompt; 0 disables. Note: injection auto-allows the Task call (updatedInput requires a decision), so set 0 if you gate Task with ask/deny permission rules |
+| `link_half_life_days` | 45.0 | Associative link weight decay |
+| `link_reinforce_factor` | 0.15 | Hebbian reinforcement step |
+| `link_prune_floor` | 0.02 | Links below this effective weight are pruned at decay |
+| `ambiguity_margin` | 0.15 | Related candidates within this of top score flagged ambiguous |
+| `embed_enabled` | false | Optional semantic search layer (local model, fail-soft) |
+| `embed_model` | nomic-embed-text | Embedding model name |
+| `embed_url` | http://localhost:11434 | Ollama-compatible endpoint |
 | `scope_map` | `{}` | Absolute path prefix to scope slug |
 | `secret_patterns` | `[]` | Extra redaction patterns `{label, regex}` |
 

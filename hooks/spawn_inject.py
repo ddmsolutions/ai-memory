@@ -3,6 +3,10 @@
 A spawned agent starts blind; this appends a small scoped recall pack,
 compiled against the subagent's own prompt as the task, to that prompt via
 updatedInput. Set config spawn_pack_limit to 0 to disable. Fails soft.
+
+Trade-off, documented: updatedInput requires an explicit permissionDecision
+on current Claude Code versions, so a non-empty pack auto-allows the Task
+call. If you run ask/deny rules on the Task tool, set spawn_pack_limit to 0.
 """
 
 from __future__ import annotations

@@ -92,10 +92,11 @@ def mention(
 
 
 def memories_about(conn: sqlite3.Connection, entity_name: str) -> list[sqlite3.Row]:
-    """Everything we know about X, in one query (via v_entity_memories)."""
+    """Everything we know about X, in one query. v_entity_memories reads
+    through v_active_memories, so superseded and quarantined rows never appear."""
     return conn.execute(
         "SELECT * FROM v_entity_memories WHERE entity_name = ? COLLATE NOCASE"
-        " AND superseded_by IS NULL ORDER BY created_at DESC",
+        " ORDER BY created_at DESC",
         (entity_name,),
     ).fetchall()
 
@@ -135,10 +136,25 @@ def purge_subject(
                 "SELECT id FROM memories WHERE origin_session = ?", (session_id,)
             )
         )
+    intention_ids: list[int] = []
+    if session_id:
+        intention_ids += [
+            r[0] for r in conn.execute(
+                "SELECT id FROM intentions WHERE origin_session = ?", (session_id,)
+            )
+        ]
+    if entity_name:
+        intention_ids += [
+            r[0] for r in conn.execute(
+                "SELECT id FROM intentions WHERE lower(content) LIKE ?",
+                (f"%{entity_name.lower()}%",),
+            )
+        ]
     report = {
         "memories": len(memory_ids),
         "entities": len(entity_ids),
         "edges": edge_count,
+        "intentions": len(set(intention_ids)),
         "dry_run": dry_run,
     }
     if dry_run:
@@ -153,6 +169,9 @@ def purge_subject(
         conn.execute("DELETE FROM entities WHERE id = ?", (eid,))
     if session_id:
         conn.execute("DELETE FROM injection_log WHERE session_id = ?", (session_id,))
+    if intention_ids:
+        qmarks = ",".join("?" * len(set(intention_ids)))
+        conn.execute(f"DELETE FROM intentions WHERE id IN ({qmarks})", list(set(intention_ids)))
     conn.commit()
     conn.execute("VACUUM")
     conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -164,10 +183,16 @@ def task_neighbourhood(conn: sqlite3.Connection, task: str, cap: int) -> list[st
     Entity match is name-substring against the task, so multi-word names work."""
     if cap <= 0 or not task:
         return []
+    import re as _re
+
     task_lower = task.lower()
     lines: list[str] = []
     for ent in conn.execute("SELECT * FROM entities ORDER BY length(name) DESC"):
-        if ent["name"].lower() not in task_lower:
+        name = ent["name"]
+        # Word-boundary match: entity "AI" must not fire on "maintain".
+        if len(name) < 3 or not _re.search(
+            r"(?<!\w)" + _re.escape(name.lower()) + r"(?!\w)", task_lower
+        ):
             continue
         for n in neighbours(conn, ent["name"])[:3]:
             arrow = "->" if n["direction"] == "out" else "<-"
@@ -176,7 +201,9 @@ def task_neighbourhood(conn: sqlite3.Connection, task: str, cap: int) -> list[st
                 return lines
         about = memories_about(conn, ent["name"])[:1]
         if about:
-            lines.append(f"- about {ent['name']}: {about[0]['content']}")
+            lines.append(
+                f"- about {ent['name']} [{about[0]['created_at'][:10]}]: {about[0]['content']}"
+            )
             if len(lines) >= cap:
                 return lines
     return lines

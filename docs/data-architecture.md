@@ -173,7 +173,7 @@ Candidate-key uniques (`entities(name, etype)`, `edges(src, dst, rel)`) double a
 
 | View | Definition | Purpose |
 |------|-----------|---------|
-| `v_active_memories` | memories where `superseded_by IS NULL` | THE read surface for current truth. Search and recall go through it; the exclusion of corrected rows is defined once, not repeated per query. |
+| `v_active_memories` | memories where `superseded_by IS NULL AND scope <> 'quarantine'` (schema v8) | THE read surface for current truth. Search and recall go through it; the exclusion of corrected rows is defined once, not repeated per query. |
 | `v_consolidation_backlog` | active episodic rows with `consolidated = 0` | One definition of "what consolidation still owes", shared by `/memory consolidate` and `status`. |
 | `v_entity_memories` | mentions joined to entity names and full memory rows | "Everything about X" in one query; substrate for purge and graph-aware recall |
 | `v_edges_named` | edges joined to src/dst entity names and types | Human-readable graph inspection in one query; stable surface for the future `why` command and viewer. |

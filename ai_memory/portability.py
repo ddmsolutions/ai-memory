@@ -33,6 +33,9 @@ def export_store(conn: sqlite3.Connection) -> dict:
         "entities": rows("SELECT * FROM entities ORDER BY id"),
         "edges": rows("SELECT * FROM edges ORDER BY id"),
         "memory_entities": rows("SELECT * FROM memory_entities"),
+        "memory_links": rows("SELECT * FROM memory_links"),
+        "intentions": rows("SELECT * FROM intentions ORDER BY id"),
+        "memory_embeddings": rows("SELECT * FROM memory_embeddings"),
     }
 
 
@@ -40,13 +43,21 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
     if data.get("format") != "ai-memory-export":
         raise ValueError("not an ai-memory export file")
 
+    from . import redact as _redact
+
     mem_map: dict[int, int] = {}
-    imported = deduped = 0
+    imported = deduped = quarantined = 0
     for m in data.get("memories", []):
+        scope = m["scope"]
+        # FR-C8 applies to every insert funnel: instruction-shaped imported
+        # rows land in quarantine, not in a recallable scope.
+        if scope != "quarantine" and _redact.screen_instructions(m["content"]):
+            scope = "quarantine"
+            quarantined += 1
         existing = conn.execute(
             "SELECT id FROM memories WHERE type = ? AND scope = ? AND content = ?"
             " AND origin_session IS ? AND created_at = ?",
-            (m["type"], m["scope"], m["content"], m.get("origin_session"), m["created_at"]),
+            (m["type"], scope, m["content"], m.get("origin_session"), m["created_at"]),
         ).fetchone()
         if existing:
             mem_map[m["id"]] = existing["id"]
@@ -56,7 +67,7 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
             "INSERT INTO memories (type, scope, content, origin_session, confidence,"
             " pinned, consolidated, recall_count, last_recalled_at, created_at,"
             " valence, verify_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (m["type"], m["scope"], m["content"], m.get("origin_session"),
+            (m["type"], scope, m["content"], m.get("origin_session"),
              m["confidence"], m["pinned"], m["consolidated"], m["recall_count"],
              m.get("last_recalled_at"), m["created_at"], m.get("valence"),
              m.get("verify_by")),
@@ -103,10 +114,48 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
                 (mem_map[me["memory_id"]], ent_map[me["entity_id"]], me["created_at"]),
             )
 
+    for link in data.get("memory_links", []):
+        if link["src_memory"] in mem_map and link["dst_memory"] in mem_map:
+            conn.execute(
+                "INSERT INTO memory_links (src_memory, dst_memory, rel, weight,"
+                " reinforce_count, last_reinforced, created_at) VALUES (?,?,?,?,?,?,?)"
+                " ON CONFLICT(src_memory, dst_memory, rel) DO NOTHING",
+                (mem_map[link["src_memory"]], mem_map[link["dst_memory"]], link["rel"],
+                 link["weight"], link["reinforce_count"], link["last_reinforced"],
+                 link["created_at"]),
+            )
+
+    intentions_in = 0
+    for it in data.get("intentions", []):
+        if conn.execute(
+            "SELECT 1 FROM intentions WHERE content = ? AND trigger_kind = ?"
+            " AND trigger_value = ? AND created_at = ?",
+            (it["content"], it["trigger_kind"], it["trigger_value"], it["created_at"]),
+        ).fetchone():
+            continue
+        conn.execute(
+            "INSERT INTO intentions (content, trigger_kind, trigger_value, scope,"
+            " status, origin_session, created_at, resolved_at) VALUES (?,?,?,?,?,?,?,?)",
+            (it["content"], it["trigger_kind"], it["trigger_value"], it["scope"],
+             it["status"], it.get("origin_session"), it["created_at"], it.get("resolved_at")),
+        )
+        intentions_in += 1
+
+    for emb in data.get("memory_embeddings", []):
+        if emb["memory_id"] in mem_map:
+            conn.execute(
+                "INSERT OR REPLACE INTO memory_embeddings (memory_id, model, vector, created_at)"
+                " VALUES (?,?,?,?)",
+                (mem_map[emb["memory_id"]], emb["model"], emb["vector"], emb["created_at"]),
+            )
+
     conn.commit()
-    return {"imported": imported, "deduplicated": deduped,
+    return {"imported": imported, "deduplicated": deduped, "quarantined": quarantined,
             "entities": len(ent_map), "edges": len(data.get("edges", [])),
-            "mentions": len(data.get("memory_entities", []))}
+            "mentions": len(data.get("memory_entities", [])),
+            "links": len(data.get("memory_links", [])),
+            "intentions": intentions_in,
+            "embeddings": len(data.get("memory_embeddings", []))}
 
 
 _PROCEDURAL_MARKERS = (
@@ -121,16 +170,19 @@ def seed_from_markdown(
     """FR-X3: onboarding importer. Bullet lines from an existing CLAUDE.md or
     notes file become memories: rule-shaped lines procedural, the rest semantic.
     Dedup by content; goes through remember() so redaction applies."""
-    from . import store
+    from . import redact as _redact, store
 
     text = Path(path).read_text(encoding="utf-8")
-    imported = skipped = 0
+    imported = skipped = screened = 0
     for raw in text.splitlines():
         line = raw.strip()
         if not (line.startswith(("- ", "* ")) and len(line) > 15):
             continue
         content = line[2:].strip().lstrip("*").strip()
         if not content or content.startswith(("[", "#")):
+            continue
+        if _redact.screen_instructions(content):
+            screened += 1
             continue
         if conn.execute(
             "SELECT 1 FROM memories WHERE content = ? AND scope = ?", (content, scope)
@@ -141,7 +193,7 @@ def seed_from_markdown(
         mtype = "procedural" if any(m in lowered for m in _PROCEDURAL_MARKERS) else "semantic"
         store.remember(conn, content, mtype=mtype, scope=scope)
         imported += 1
-    return {"imported": imported, "skipped": skipped}
+    return {"imported": imported, "skipped": skipped, "screened": screened}
 
 
 def export_to_file(conn: sqlite3.Connection, path: Path) -> None:
