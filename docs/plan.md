@@ -24,42 +24,62 @@ Four-store schema, FTS5 search, supersession, pinning, promote/consolidate primi
 
 ## Current phase: v0.2 - make it trustworthy in daily use
 
-Goal: after two weeks of real use, the store stays clean without manual effort, and no memo is lost regardless of where it was written.
+Goal: after two weeks of real use, memory is present when needed (not just at session start), the store stays clean without manual effort, no memo is lost regardless of where it was written, and nothing sensitive is ever persisted.
 
-Build order (one feature branch each, in this sequence):
+Build order (one feature branch each, in this sequence; foundations before features):
 
-### Section 1: SubagentStop capture
+### Section 1: CI
+GitHub Actions workflow: pytest on push and PR, Python 3.10 and 3.12, README badge. Guardrail before anything else changes.
+- Status: [ ] not started
+
+### Section 2: Schema versioning and migrations
+`PRAGMA user_version` plus a small ordered-migration runner in `db.py`. Required BEFORE dogfooding starts: the next schema change must not strand a live store. Test: create at old version, migrate, verify.
+- Status: [ ] not started
+
+### Section 3: Config file
+`~/.ai-memory/config.json` (override path via env), read once, fail-soft to defaults. Carries: decay window, recall pack size, per-section caps, scope mapping. Removes the hardcoded values the coding rules prohibit.
+- Status: [ ] not started
+
+### Section 4: SubagentStop capture
 Extend capture so memos written by subagents are stored, not just main-loop turns. Reuse `extract_memos`; register the hook in hooks.json; dedup by session + content as now.
 - Status: [ ] not started
 
-### Section 2: Project scoping
-Resolve scope automatically from the hook payload's working directory (map cwd to a stable project slug), so recall packs are project-relevant by default. `--scope` on the CLI keeps working; global memories always included. No per-agent scoping yet.
+### Section 5: Secret filter on capture
+Redaction screen before any insert: common credential shapes (API key prefixes, bearer tokens, PEM blocks, high-entropy strings) are masked, with a test per pattern. A memory store must never hold a secret in plaintext.
 - Status: [ ] not started
 
-### Section 3: Decay and reinforcement
-A `decay` CLI command: episodics older than a configurable window (default 30 days) that were never promoted and never recalled are deleted; repeated recall bumps confidence. Deterministic, dry-run flag, never touches pinned or promoted rows. Wire into the /memory command as part of consolidate.
+### Section 6: Turn-time recall
+UserPromptSubmit hook: FTS-match the user's prompt against the store, inject the top task-relevant memories for THIS turn. The highest-value item in the phase: recall becomes present when needed, not only at session start. Budget-capped via config; fail-soft.
 - Status: [ ] not started
 
-### Section 4: Export / import
-`export` to JSON (full store) and `import` with dedup, so a store can move between machines or be backed up. Round-trip test required.
+### Section 7: Project scoping
+Resolve scope automatically from the hook payload's working directory (map cwd to a stable project slug), so packs are project-relevant by default. `--scope` on the CLI keeps working; global memories always included. No per-agent scoping yet.
 - Status: [ ] not started
 
-### Section 5: Release hygiene
-Version bump to 0.2.0, changelog, docs updated (install, architecture where behaviour changed), tag `v0.2.0`.
+### Section 8: Decay and reinforcement
+A `decay` CLI command: episodics older than the configured window (default 30 days) that were never promoted and never recalled are deleted; repeated recall bumps confidence. Deterministic, dry-run flag, never touches pinned or promoted rows. Wire into /memory consolidate.
+- Status: [ ] not started
+
+### Section 9: Release hygiene
+Version bump to 0.2.0, changelog, docs updated (install, architecture, data-architecture where behaviour changed), tag `v0.2.0`.
 - Status: [ ] not started
 
 ## Out of scope for v0.2 (deliberately)
 
-- Automatic entity extraction during consolidation: model-driven and speculative; needs dogfooding evidence first. Moved to v0.3.
-- Embedding/vector search: FTS5 is sufficient at current scale; revisit at v0.3 behind the existing `search` interface.
-- Graph-aware recall, token-budgeted packs, marketplace listing: v0.3 (see `roadmap.md`).
-- Any UI or viewer: later.
+- Export / import: portability matters less than trustworthiness while the only user is the owner. Moved to v0.3.
+- Automatic entity extraction during consolidation: model-driven and speculative; needs dogfooding evidence first. v0.3.
+- Skill-based routing (proactive save/recall without typing /memory): v0.3, after the memo habit proves out.
+- Contradiction/duplicate detection at consolidation: v0.3.
+- Subagent spawn-time recall injection: deferred until Section 4 shows real demand.
+- Embedding/vector search: FTS5 is sufficient at current scale; v0.3 behind the existing `search` interface.
+- Graph-aware recall, marketplace listing, any UI or viewer: v0.3 or later (see `roadmap.md`).
 
 ## First-draft review (pruning log)
 
-- Cut from v0.2: automatic entity extraction (was on the roadmap for v0.2). Too complex for this phase; manual `entity add/link` covers the need while dogfooding tells us what extraction should actually do.
-- Kept small: project scoping does cwd-based scope only; per-agent scoping deferred until subagent capture (Section 1) shows real demand.
-- Sequencing rationale: capture completeness first (lost memos are unrecoverable), then relevance (scoping), then hygiene (decay), then portability.
+- Re-cut 2026-08-25 (element review): added CI, schema versioning, config, secret filter, and turn-time recall to v0.2; pushed export/import to v0.3. Rationale: the phase goal is trustworthiness in daily use, and a memory that only surfaces at session start, can strand data on schema change, or can persist a secret is not trustworthy. Portability can wait.
+- Cut from v0.2 (original draft): automatic entity extraction. Too complex for this phase; manual `entity add/link` covers the need while dogfooding tells us what extraction should actually do.
+- Kept small: project scoping does cwd-based scope only; per-agent scoping deferred until subagent capture shows real demand.
+- Sequencing rationale: guardrails and foundations first (CI, migrations, config), then capture completeness and safety (lost memos are unrecoverable, leaked secrets worse), then recall relevance (turn-time, scoping), then hygiene (decay), then release.
 
 ## Definition of Done (per section)
 
