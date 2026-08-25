@@ -37,6 +37,31 @@ def _compatible(value, default) -> bool:
     return isinstance(value, type(default))
 
 
+def resolve_scope(cwd: str | None, cfg: dict) -> str:
+    """FR-R9: map a working directory to a scope slug via config scope_map.
+
+    Longest matching path prefix wins (nested directories inherit the nearest
+    mapped ancestor); unmapped or unresolvable directories are `global`.
+    """
+    scope_map = cfg.get("scope_map") or {}
+    if not cwd or not scope_map:
+        return "global"
+    try:
+        current = os.path.normcase(str(Path(cwd).resolve()))
+    except Exception:
+        return "global"
+    best_slug, best_len = "global", -1
+    for prefix, slug in scope_map.items():
+        try:
+            root = os.path.normcase(str(Path(prefix).resolve()))
+        except Exception:
+            continue
+        if current == root or current.startswith(root + os.sep):
+            if len(root) > best_len:
+                best_slug, best_len = str(slug), len(root)
+    return best_slug
+
+
 def load(path: Path | None = None) -> dict:
     cfg = dict(DEFAULTS)
     target = path or config_path()

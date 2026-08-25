@@ -21,11 +21,16 @@ def main() -> int:
         return 0
     prompt = payload.get("prompt", "")
     session_id = payload.get("session_id")
+    cwd = payload.get("cwd")
     try:
-        from ai_memory import db, store
+        from ai_memory import config, db, store
 
+        cfg = config.load()
         conn = db.connect()
-        context = store.turn_recall(conn, prompt, session_id=session_id)
+        context = store.turn_recall(
+            conn, prompt, session_id=session_id,
+            scope=config.resolve_scope(cwd, cfg), cfg=cfg,
+        )
     except Exception:
         return 0
     if context:

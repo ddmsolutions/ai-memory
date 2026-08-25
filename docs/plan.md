@@ -56,7 +56,7 @@ UserPromptSubmit hook: FTS-match the user's prompt against the store, inject the
 
 ### Section 7: Project scoping
 Resolve scope automatically from the hook payload's working directory (map cwd to a stable project slug), so packs are project-relevant by default. `--scope` on the CLI keeps working; global memories always included. No per-agent scoping yet.
-- Status: [ ] not started
+- Status: [x] complete (issue #8)
 
 ### Section 8: Decay and reinforcement
 A `decay` CLI command: episodics older than the configured window (default 30 days) that were never promoted and never recalled are deleted; repeated recall bumps confidence. Deterministic, dry-run flag, never touches pinned or promoted rows. Wire into /memory consolidate.

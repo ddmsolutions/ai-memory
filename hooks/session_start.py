@@ -15,17 +15,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def main() -> int:
-    session_id = None
+    session_id = cwd = None
     try:
         payload = json.load(sys.stdin)
         session_id = payload.get("session_id")
+        cwd = payload.get("cwd")
     except Exception:
         pass
     try:
-        from ai_memory import db, store
+        from ai_memory import config, db, store
 
+        cfg = config.load()
         conn = db.connect()
-        pack = store.recall_pack(conn, session_id=session_id)
+        pack = store.recall_pack(
+            conn, scope=config.resolve_scope(cwd, cfg), cfg=cfg, session_id=session_id
+        )
     except Exception:
         return 0
     if pack:
