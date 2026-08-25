@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     rc = sub.add_parser("recall", help="compile a recall pack (markdown)")
     rc.add_argument("--task")
     rc.add_argument("--scope", default="global")
-    rc.add_argument("--limit", type=int, default=12)
+    rc.add_argument("--limit", type=int, default=None, help="default: config pack_limit")
 
     f = sub.add_parser("forget", help="delete a memory by id")
     f.add_argument("id", type=int)

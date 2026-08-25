@@ -38,13 +38,28 @@ Add to `.claude/settings.json` (project) or `~/.claude/settings.json` (user), re
 }
 ```
 
-## 3. Teach the session to write memos
+## 3. Configure (optional)
+
+All tunables live in `~/.ai-memory/config.json` (override the path with `AI_MEMORY_CONFIG`). Missing file or invalid keys fall back to defaults per key, silently.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `pack_limit` | 12 | Recall pack total row budget |
+| `recency_half_life_days` | 30.0 | Eviction score recency decay |
+| `usage_saturation` | 3.0 | Eviction score hit-count saturation |
+| `turn_recall_cap` | 3 | Max rows injected per user prompt |
+| `decay_window_days` | 30 | Episodics older than this may decay |
+| `reinforce_step` | 0.05 | Confidence bump per recall (cap 1.0) |
+| `scope_map` | `{}` | Absolute path prefix to scope slug |
+| `secret_patterns` | `[]` | Extra redaction patterns `{label, regex}` |
+
+## 4. Teach the session to write memos
 
 Capture works by scanning the transcript for fenced memo blocks. Add a line like this to your `CLAUDE.md`:
 
 > When a turn establishes something worth remembering (a decision, a fact, a correction, a lesson), end the reply with a fenced ` ```memo ` block containing a one-line outcome. Only when the turn earned it.
 
-## 4. Verify
+## 5. Verify
 
 ```bash
 python -m ai_memory remember --type semantic "ai-memory installed on this machine"

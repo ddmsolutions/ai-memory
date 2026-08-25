@@ -5,6 +5,8 @@ from __future__ import annotations
 import sqlite3
 from typing import Iterable
 
+from . import config
+
 MEMORY_TYPES = ("episodic", "semantic", "procedural")
 
 
@@ -71,13 +73,18 @@ def recall_pack(
     conn: sqlite3.Connection,
     task: str | None = None,
     scope: str = "global",
-    limit: int = 12,
+    limit: int | None = None,
+    cfg: dict | None = None,
 ) -> str:
     """Compile a compact markdown recall pack for injection at session start.
 
     Layers, in priority order: pinned memories, procedural lessons,
     semantic facts, then task-relevant matches if a task is given.
     """
+    if cfg is None:
+        cfg = config.load()
+    if limit is None:
+        limit = int(cfg["pack_limit"])
     seen: set[int] = set()
     sections: list[tuple[str, list[sqlite3.Row]]] = []
 
