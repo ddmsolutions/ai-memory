@@ -1,0 +1,19 @@
+[project]
+name = "ai-memory"
+version = "0.1.0"
+description = "Persistent semantic, procedural, episodic and entity memory for Claude Code"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "DDM Solutions Ltd" }]
+keywords = ["claude-code", "memory", "agent", "sqlite", "knowledge-graph"]
+
+[project.scripts]
+ai-memory = "ai_memory.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["ai_memory"]

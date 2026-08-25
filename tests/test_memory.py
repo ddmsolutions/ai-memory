@@ -1,0 +1,112 @@
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from ai_memory import db, graph, store  # noqa: E402
+
+
+@pytest.fixture
+def conn(tmp_path):
+    c = db.connect(tmp_path / "memory.db")
+    yield c
+    c.close()
+
+
+def test_remember_and_search(conn):
+    mid = store.remember(conn, "Staging DB is Postgres 16 on port 5433", mtype="semantic")
+    hits = store.search(conn, "postgres staging")
+    assert [h["id"] for h in hits] == [mid]
+
+
+def test_supersession_hides_old_truth(conn):
+    old = store.remember(conn, "Staging DB is Postgres 15", mtype="semantic")
+    store.remember(conn, "Staging DB is Postgres 16", mtype="semantic", supersedes=old)
+    hits = store.search(conn, "staging postgres")
+    assert len(hits) == 1
+    assert "16" in hits[0]["content"]
+
+
+def test_recall_pack_priorities_and_counting(conn):
+    store.remember(conn, "Never push the instance repo", mtype="procedural", pinned=True)
+    store.remember(conn, "Run linters before commit", mtype="procedural")
+    store.remember(conn, "Owner email is x@example.com", mtype="semantic")
+    store.remember(conn, "Fixed the billing bug today", mtype="episodic")
+    pack = store.recall_pack(conn, task="billing")
+    assert "Pinned" in pack and "Never push" in pack
+    assert "procedural" in pack and "semantic" in pack.lower()
+    assert "billing" in pack
+    counted = conn.execute("SELECT COUNT(*) FROM memories WHERE recall_count > 0").fetchone()[0]
+    assert counted >= 3
+
+
+def test_promote_marks_consolidated(conn):
+    eid = store.remember(conn, "User said always use British spelling", mtype="episodic")
+    new_id = store.promote(conn, eid, "procedural", content="Use British spelling in all output")
+    row = conn.execute("SELECT * FROM memories WHERE id = ?", (eid,)).fetchone()
+    assert row["consolidated"] == 1
+    new = conn.execute("SELECT * FROM memories WHERE id = ?", (new_id,)).fetchone()
+    assert new["type"] == "procedural"
+    assert store.unconsolidated(conn) == []
+
+
+def test_scope_filtering(conn):
+    store.remember(conn, "global fact about widgets", mtype="semantic")
+    store.remember(conn, "reviewer-only fact about widgets", mtype="semantic", scope="reviewer")
+    hits = store.search(conn, "widgets", scope="builder")
+    assert len(hits) == 1
+    hits = store.search(conn, "widgets", scope="reviewer")
+    assert len(hits) == 2
+
+
+def test_entity_graph_roundtrip(conn):
+    graph.add_entity(conn, "Alice", etype="person", summary="Payments lead")
+    graph.link(conn, "Alice", "payments-service", rel="maintains")
+    ns = graph.neighbours(conn, "alice")
+    assert ns and ns[0]["other"] == "payments-service"
+    desc = graph.describe(conn, "Alice")
+    assert "maintains" in desc and "Payments lead" in desc
+
+
+def test_entity_upsert_no_duplicates(conn):
+    a = graph.add_entity(conn, "Bob", etype="person")
+    b = graph.add_entity(conn, "Bob", etype="person", summary="Ops")
+    assert a == b
+    assert graph.find_entity(conn, "bob")["summary"] == "Ops"
+
+
+def test_cli_end_to_end(tmp_path):
+    env_db = str(tmp_path / "cli.db")
+
+    def run(*args):
+        return subprocess.run(
+            [sys.executable, "-m", "ai_memory", "--db", env_db, *args],
+            capture_output=True, text=True, cwd=ROOT, check=True,
+        ).stdout
+
+    run("init")
+    run("remember", "CLI smoke fact", "--type", "semantic")
+    assert "CLI smoke fact" in run("search", "smoke")
+    counts = json.loads(run("status"))
+    assert counts["semantic"] == 1
+
+
+def test_capture_hook_extracts_memos(tmp_path):
+    transcript = tmp_path / "t.jsonl"
+    lines = [
+        json.dumps({"message": {"role": "user", "content": "hi"}}),
+        json.dumps({"message": {"role": "assistant", "content": [
+            {"type": "text", "text": "Done.\n```memo\noutcome: shipped the thing\n```\n"}
+        ]}}),
+    ]
+    transcript.write_text("\n".join(lines), encoding="utf-8")
+    sys.path.insert(0, str(ROOT / "hooks"))
+    import capture
+
+    memos = capture.extract_memos(str(transcript))
+    assert memos == ["outcome: shipped the thing"]

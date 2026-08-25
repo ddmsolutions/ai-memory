@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# memory stores are instance data, never committed
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+.pytest_cache/
+.coverage
+.DS_Store
