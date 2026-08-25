@@ -4,7 +4,7 @@ Project-specific rules for coding agents working in this repo. Extends the owner
 
 ## What this is
 
-A Claude Code plugin providing persistent memory in four stores: episodic, semantic, procedural, and entity (knowledge graph). Local-first, one SQLite file, stdlib only. See `README.md` and `docs/architecture.md` before changing anything; the working plan and build order live in `docs/plan.md` - work its sections in sequence and mark them complete as you go.
+A Claude Code plugin providing persistent memory in four stores: episodic, semantic, procedural, and entity (knowledge graph). Local-first, one SQLite file, stdlib only. See `README.md` and `docs/architecture.md` before changing anything; the working plan and build order live in `docs/plan.md` - work its sections in sequence and mark them complete as you go. Each section's requirement set and acceptance criteria come from `docs/requirements.md` (traceability matrix) with flows and error paths in `docs/use-cases.md`; the "How to develop from this pack" steps at the end of requirements.md are the loop to follow.
 
 ## Stack
 
@@ -18,7 +18,7 @@ A Claude Code plugin providing persistent memory in four stores: episodic, seman
 ai_memory/        the engine: db.py (schema), store.py (memories), graph.py (entities), __main__.py (CLI)
 hooks/            Claude Code hook scripts + hooks.json (SessionStart inject, Stop capture)
 commands/         the /memory slash command
-docs/             architecture, install, roadmap
+docs/             architecture, data-architecture, install, plan, use-cases, requirements, roadmap
 tests/            pytest suite; every behaviour change lands with a test
 .claude-plugin/   plugin manifest
 ```
