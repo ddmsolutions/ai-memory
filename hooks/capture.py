@@ -84,11 +84,13 @@ def main() -> int:
                 # FR-C8: instruction-shaped memos are quarantined, not stored
                 # into any recallable scope and not silently dropped.
                 flag = redact.screen_instructions(memo)
-                store.remember(
+                mid = store.remember(
                     conn, memo, mtype="episodic", origin_session=session_id,
                     scope="quarantine" if flag else scope,
                     valence=memo_valence(memo),
                 )
+                if not flag:
+                    store.link_co_session(conn, mid, session_id)
                 already.add(memo)
     except Exception:
         return 0
