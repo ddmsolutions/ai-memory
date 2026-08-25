@@ -11,11 +11,58 @@ Modelled on the standard cognitive split, because it maps cleanly onto what an a
 
 ## Lifecycle
 
+```mermaid
+flowchart LR
+    memo["Turn ends with a<br/>fenced memo block"] --> stop["Stop hook<br/>capture.py"]
+    stop -->|"insert, dedup<br/>by origin_session"| epi
+
+    subgraph db["memory.db"]
+        epi["episodic<br/>raw events, decay"]
+        sem["semantic<br/>durable facts"]
+        proc["procedural<br/>how-to rules"]
+        kg["entity graph<br/>nodes + edges"]
+    end
+
+    epi -->|"/memory consolidate:<br/>model distils, engine promotes<br/>(promoted_from FK)"| sem
+    epi --> proc
+    cli["/memory entity<br/>add / link"] --> kg
+    epi -.->|"auto-extraction<br/>planned v0.3"| kg
+
+    sem --> pack["recall pack<br/>pinned, then procedural,<br/>then semantic,<br/>then task FTS matches"]
+    proc --> pack
+    pack --> ss["SessionStart hook<br/>session_start.py"]
+    ss -->|additionalContext| next["Next session starts<br/>already informed"]
 ```
-            write path                          read path
-Stop hook ──▶ episodic ──consolidate──▶ semantic ──┐
-   (memo blocks)   │        (promote)   procedural ─┼──▶ recall pack ──▶ SessionStart hook
-                   └──────entity extraction──▶ graph┘    (compiled md)     (additionalContext)
+
+The hook interplay across two sessions:
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant CC as Claude Code
+    participant Stop as Stop hook (capture.py)
+    participant DB as memory.db
+    participant SS as SessionStart hook (session_start.py)
+
+    note over U,DB: Session A
+    U->>CC: normal work, a turn earns a memo
+    CC->>CC: reply ends with a fenced memo block
+    CC->>Stop: Stop event (session_id, transcript_path)
+    Stop->>Stop: scan transcript for memo blocks
+    Stop->>DB: insert episodic rows, dedup by origin_session
+    note over Stop: any error: swallow, exit 0
+
+    note over U,DB: Between sessions: /memory consolidate
+    U->>CC: /memory consolidate
+    CC->>DB: list unconsolidated episodics
+    CC->>DB: promote distilled rows (semantic / procedural, promoted_from FK)
+
+    note over U,DB: Session B
+    CC->>SS: SessionStart event
+    SS->>DB: compile recall pack, bump recall_count
+    DB-->>SS: pack (markdown)
+    SS-->>CC: hookSpecificOutput.additionalContext
+    CC->>U: session starts already knowing the facts
 ```
 
 - **Capture** is deliberately dumb: the Stop hook scans the transcript for fenced ` ```memo ` blocks and stores them verbatim as episodic rows, deduplicated per session. The intelligence lives in the model writing good memos, not in the hook.
