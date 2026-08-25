@@ -18,6 +18,32 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 MEMO_RE = re.compile(r"```memo\s*\n(.*?)```", re.DOTALL)
+HANDOFF_RE = re.compile(r"```handoff\s*\n(.*?)```", re.DOTALL)
+
+
+def extract_handoffs(transcript_path: str) -> list[str]:
+    """Fenced ```handoff blocks: state of play for the NEXT session (UC-35)."""
+    handoffs: list[str] = []
+    path = Path(transcript_path)
+    if not path.exists():
+        return handoffs
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            event = json.loads(line)
+        except Exception:
+            continue
+        message = event.get("message") or {}
+        if message.get("role") != "assistant":
+            continue
+        content = message.get("content")
+        texts = []
+        if isinstance(content, str):
+            texts.append(content)
+        elif isinstance(content, list):
+            texts.extend(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+        for text in texts:
+            handoffs.extend(h.strip() for h in HANDOFF_RE.findall(text) if h.strip())
+    return handoffs
 VALENCE_RE = re.compile(r"^valence:\s*(success|failure|neutral)\s*$", re.I | re.M)
 
 
@@ -60,9 +86,10 @@ def main() -> int:
     session_id = payload.get("session_id", "unknown")
     try:
         memos = extract_memos(transcript)
+        handoff_blocks = extract_handoffs(transcript)
     except Exception:
         return 0
-    if not memos:
+    if not memos and not handoff_blocks:
         return 0
     try:
         from ai_memory import config, db, redact, store
@@ -92,6 +119,11 @@ def main() -> int:
                 if not flag:
                     store.link_co_session(conn, mid, session_id)
                 already.add(memo)
+        for block in handoff_blocks:
+            try:
+                store.handoff_write(conn, block, scope=scope, origin_session=session_id)
+            except ValueError:
+                continue  # instruction-shaped handoff refused; skip, never store
     except Exception:
         return 0
     return 0
