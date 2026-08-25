@@ -52,6 +52,28 @@ def _compile_extra(extra: list | None) -> list[tuple[str, re.Pattern]]:
     return out
 
 
+INSTRUCTION_PATTERNS: list[tuple[str, re.Pattern]] = [
+    ("instruction-override", re.compile(
+        r"\b(?:ignore|disregard|forget)\s+(?:all\s+|any\s+|the\s+)?"
+        r"(?:previous|prior|above|earlier)\s+(?:instructions?|context|rules?|prompts?)", re.I)),
+    ("behaviour-hijack", re.compile(
+        r"\byou\s+(?:must|should|will)\s+now\b|\bfrom\s+now\s+on,?\s+(?:you|always|respond|reply)"
+        r"|\balways\s+respond\s+with\b|\bnew\s+instructions?\s*:", re.I)),
+    ("concealment", re.compile(
+        r"\bdo\s+not\s+(?:tell|inform|reveal\s+(?:this\s+)?to|mention\s+(?:this\s+)?to)\s+the\s+user\b", re.I)),
+    ("system-prompt-probe", re.compile(r"\bsystem\s+prompt\b", re.I)),
+]
+
+
+def screen_instructions(text: str) -> str | None:
+    """FR-C8: return the matched label when memo content is instruction-shaped
+    (aimed at steering the model), else None. Callers quarantine, never drop."""
+    for label, rx in INSTRUCTION_PATTERNS:
+        if rx.search(text):
+            return label
+    return None
+
+
 def redact(text: str, extra_patterns: list | None = None) -> tuple[str, int]:
     """Return (clean_text, redaction_count)."""
     count = 0

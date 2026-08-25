@@ -133,7 +133,7 @@ The behavioural model of ai-memory. Every use case decomposes into numbered requ
 - **UC-19 Set and trigger an intention** - PLANNED-0.3. Create a prospective memory with a time or context trigger; it surfaces until done or expired. FR-P1..P3.
 - **UC-20 Record outcome valence** - LIVE (2026-08-25). Mark an episode success or failure; consolidation weights failures into rules. FR-A1, FR-A3.
 - **UC-21 Flag a stale fact** - LIVE (2026-08-25). A semantic row past `verify_by` recalls with a verify warning. FR-A2.
-- **UC-22 Screen instruction-shaped memos** - PLANNED-0.3. Capture flags or refuses content that reads as instructions to the model. FR-C8.
+- **UC-22 Screen instruction-shaped memos** - LIVE (2026-08-25). Capture flags or refuses content that reads as instructions to the model. FR-C8.
 - **UC-23 Chain memories associatively** - PLANNED-0.3. Typed weighted links (curated + auto co_session), Hebbian reinforce/decay, candidate-set retrieval. FR-L1..L5, NFR-12.
 - **UC-24 Bridge memories to entities** - PLANNED-0.3. Mentions join makes "everything about X" one query. FR-N1.
 - **UC-25 Purge a subject** - PLANNED-0.3. One confirmed command erases an entity or session everywhere. FR-N2.

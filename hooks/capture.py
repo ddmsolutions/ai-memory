@@ -81,9 +81,13 @@ def main() -> int:
         }
         for memo in memos:
             if memo not in already:
+                # FR-C8: instruction-shaped memos are quarantined, not stored
+                # into any recallable scope and not silently dropped.
+                flag = redact.screen_instructions(memo)
                 store.remember(
                     conn, memo, mtype="episodic", origin_session=session_id,
-                    scope=scope, valence=memo_valence(memo),
+                    scope="quarantine" if flag else scope,
+                    valence=memo_valence(memo),
                 )
                 already.add(memo)
     except Exception:
