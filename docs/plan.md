@@ -40,11 +40,11 @@ GitHub Actions workflow: pytest on push and PR, Python 3.10 and 3.12, README bad
 
 ### Section 3: Config file
 `~/.ai-memory/config.json` (override path via env), read once, fail-soft to defaults. Carries: decay window, recall pack size, per-section caps, scope mapping. Removes the hardcoded values the coding rules prohibit.
-- Status: [ ] not started
+- Status: [x] complete (issue #4)
 
 ### Section 4: SubagentStop capture
 Extend capture so memos written by subagents are stored, not just main-loop turns. Reuse `extract_memos`; register the hook in hooks.json; dedup by session + content as now.
-- Status: [ ] not started
+- Status: [x] complete (issue #5)
 
 ### Section 5: Secret filter on capture
 Redaction screen before any insert: common credential shapes (API key prefixes, bearer tokens, PEM blocks, high-entropy strings) are masked, with a test per pattern. A memory store must never hold a secret in plaintext.

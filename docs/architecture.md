@@ -50,7 +50,7 @@ sequenceDiagram
     CC->>Stop: Stop event (session_id, transcript_path)
     Stop->>Stop: scan transcript for memo blocks
     Stop->>DB: insert episodic rows, dedup by origin_session
-    note over Stop: any error: swallow, exit 0
+    note over Stop: SubagentStop routes here too, so<br/>subagent memos are captured under<br/>the same dedup. Any error: exit 0
 
     note over U,DB: Between sessions: /memory consolidate
     U->>CC: /memory consolidate
