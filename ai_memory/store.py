@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import date
 from typing import Iterable
 
 from . import config
 
 MEMORY_TYPES = ("episodic", "semantic", "procedural")
+VALENCES = ("success", "failure", "neutral")
 
 
 def _fts_query(text: str) -> str:
@@ -35,9 +37,13 @@ def remember(
     confidence: float = 0.7,
     pinned: bool = False,
     supersedes: int | None = None,
+    valence: str | None = None,
+    verify_by: str | None = None,
 ) -> int:
     if mtype not in MEMORY_TYPES:
         raise ValueError(f"type must be one of {MEMORY_TYPES}")
+    if valence is not None and valence not in VALENCES:
+        raise ValueError(f"valence must be one of {VALENCES}")
     # FR-C6: store.remember is the single insert funnel, so redaction here
     # covers every capture path (hooks, CLI, callers).
     from . import redact as _redact
@@ -45,8 +51,9 @@ def remember(
     content = _redact.redact(content, config.load().get("secret_patterns"))[0]
     cur = conn.execute(
         "INSERT INTO memories (type, scope, content, origin_session, promoted_from,"
-        " confidence, pinned) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (mtype, scope, content, origin_session, promoted_from, confidence, int(pinned)),
+        " confidence, pinned, valence, verify_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (mtype, scope, content, origin_session, promoted_from, confidence,
+         int(pinned), valence, verify_by),
     )
     new_id = cur.lastrowid
     if supersedes is not None:
@@ -108,6 +115,18 @@ def _record_injection(conn: sqlite3.Connection, session_id: str | None, ids: lis
         "INSERT OR IGNORE INTO injection_log (session_id, memory_id) VALUES (?, ?)",
         [(session_id, i) for i in ids],
     )
+
+
+def format_line(row: sqlite3.Row) -> str:
+    """One recall line: dated (FR-R11), with a verify warning past verify_by (FR-A2)."""
+    line = f"- [{row['created_at'][:10]}] {row['content']}"
+    try:
+        verify_by = row["verify_by"]
+    except (IndexError, KeyError):
+        verify_by = None
+    if verify_by and verify_by[:10] <= date.today().isoformat():
+        line += f" (VERIFY: unconfirmed since {verify_by[:10]})"
+    return line
 
 
 def _bump_recall(conn: sqlite3.Connection, ids: list[int], step: float = 0.0) -> None:
@@ -199,7 +218,7 @@ def recall_pack(
         if not rows:
             continue
         lines.append(f"\n{title}:")
-        lines.extend(f"- [{r['created_at'][:10]}] {r['content']}" for r in rows)
+        lines.extend(format_line(r) for r in rows)
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
@@ -241,7 +260,7 @@ def turn_recall(
     _record_injection(conn, session_id, ids)
     conn.commit()
     lines = ["<!-- ai-memory: relevant to this prompt; verify anything critical -->"]
-    lines.extend(f"- [{r['created_at'][:10]}] {r['content']}" for r in rows)
+    lines.extend(format_line(r) for r in rows)
     return "\n".join(lines)
 
 

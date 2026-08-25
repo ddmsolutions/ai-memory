@@ -16,6 +16,7 @@ foreign key recording consolidation lineage.
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from pathlib import Path
 
@@ -92,7 +93,7 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
@@ -109,11 +110,39 @@ MIGRATIONS: dict[int, list[str]] = {
            )""",
         "CREATE INDEX IF NOT EXISTS ix_injection_session ON injection_log(session_id)",
     ],
+    3: [
+        # FR-A1/A2: outcome valence on episodes, verify-by staleness on facts.
+        # Views are recreated because SQLite expands SELECT * at view-creation
+        # time; without this the new columns would be invisible to readers.
+        "ALTER TABLE memories ADD COLUMN valence TEXT"
+        " CHECK (valence IN ('success','failure','neutral'))",
+        "ALTER TABLE memories ADD COLUMN verify_by TEXT",
+        "DROP VIEW IF EXISTS v_consolidation_backlog",
+        "DROP VIEW IF EXISTS v_active_memories",
+        "CREATE VIEW v_active_memories AS"
+        "  SELECT * FROM memories WHERE superseded_by IS NULL",
+        "CREATE VIEW v_consolidation_backlog AS"
+        "  SELECT * FROM v_active_memories WHERE type = 'episodic' AND consolidated = 0",
+    ],
 }
 
 
 class MigrationError(RuntimeError):
     """A migration failed; the store was left untouched at its old version."""
+
+
+_ALTER_ADD_RE = re.compile(r"ALTER TABLE\s+(\w+)\s+ADD COLUMN\s+(\w+)", re.I)
+
+
+def _already_applied(conn: sqlite3.Connection, statement: str) -> bool:
+    """Idempotency convention: DDL uses IF NOT EXISTS, but ALTER ADD COLUMN has
+    no such clause, so skip it when the column exists (version-stripped or
+    concurrently migrated stores re-run migrations by design)."""
+    m = _ALTER_ADD_RE.match(statement.strip())
+    if not m:
+        return False
+    table, column = m.groups()
+    return column in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
@@ -139,7 +168,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 version = current
                 continue
             for statement in MIGRATIONS[target]:
-                conn.execute(statement)
+                if not _already_applied(conn, statement):
+                    conn.execute(statement)
             conn.execute(f"PRAGMA user_version = {int(target)}")
             conn.commit()
         except Exception as exc:

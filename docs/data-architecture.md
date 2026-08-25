@@ -97,6 +97,8 @@ stateDiagram-v2
 | pinned | INTEGER | no | 0 | Pinned rows lead every recall pack and are exempt from decay. |
 | consolidated | INTEGER | no | 0 | Episodic only: 1 once a consolidation pass has promoted or reviewed it. |
 | superseded_by | INTEGER | yes | NULL | FK to the row that replaced this one. Non-NULL rows are excluded from search and recall. ON DELETE SET NULL. |
+| valence | TEXT | yes | NULL | Episode outcome: success, failure, neutral (schema v3, FR-A1). Memo syntax: a `valence: failure` line. |
+| verify_by | TEXT | yes | NULL | Facts past this date recall with a VERIFY warning (schema v3, FR-A2). |
 | recall_count | INTEGER | no | 0 | Derived counter: times included in a recall pack. |
 | last_recalled_at | TEXT | yes | NULL | Derived: timestamp of last recall inclusion. |
 | created_at | TEXT | no | now | ISO UTC. |

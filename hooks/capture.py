@@ -18,6 +18,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 MEMO_RE = re.compile(r"```memo\s*\n(.*?)```", re.DOTALL)
+VALENCE_RE = re.compile(r"^valence:\s*(success|failure|neutral)\s*$", re.I | re.M)
+
+
+def memo_valence(memo: str) -> str | None:
+    """FR-A1 memo syntax: a `valence: success|failure|neutral` line in the memo."""
+    m = VALENCE_RE.search(memo)
+    return m.group(1).lower() if m else None
 
 
 def extract_memos(transcript_path: str) -> list[str]:
@@ -75,7 +82,8 @@ def main() -> int:
         for memo in memos:
             if memo not in already:
                 store.remember(
-                    conn, memo, mtype="episodic", origin_session=session_id, scope=scope
+                    conn, memo, mtype="episodic", origin_session=session_id,
+                    scope=scope, valence=memo_valence(memo),
                 )
                 already.add(memo)
     except Exception:

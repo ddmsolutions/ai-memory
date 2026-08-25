@@ -27,6 +27,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--confidence", type=float, default=0.7)
     r.add_argument("--pin", action="store_true")
     r.add_argument("--supersedes", type=int, help="id of the memory this one replaces")
+    r.add_argument("--valence", choices=store.VALENCES, help="outcome of the episode")
+    r.add_argument("--verify-by", dest="verify_by", help="ISO date after which this fact needs re-verification")
 
     s = sub.add_parser("search", help="full-text search")
     s.add_argument("query")
@@ -97,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
             conn, args.content, mtype=args.mtype, scope=args.scope,
             origin_session=args.origin_session,
             confidence=args.confidence, pinned=args.pin, supersedes=args.supersedes,
+            valence=args.valence, verify_by=args.verify_by,
         )
         print(f"remembered #{mid} ({args.mtype})")
     elif args.command == "search":
@@ -115,7 +118,8 @@ def main(argv: list[str] | None = None) -> int:
         if not rows:
             print("nothing to consolidate")
         for row in rows:
-            print(f"#{row['id']} {row['created_at']} {row['content']}")
+            tag = f" [{row['valence']}]" if row["valence"] else ""
+            print(f"#{row['id']} {row['created_at']}{tag} {row['content']}")
     elif args.command == "eval":
         from . import evalharness
 
