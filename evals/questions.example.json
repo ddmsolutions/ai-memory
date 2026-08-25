@@ -1,0 +1,13 @@
+[
+  {
+    "id": "example-1",
+    "query": "staging database version",
+    "expect": "postgres 16"
+  },
+  {
+    "id": "example-2",
+    "query": "linter before commit",
+    "expect": "schema linter",
+    "scope": "my-project"
+  }
+]

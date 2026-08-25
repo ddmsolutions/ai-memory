@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Eval harness: `eval --questions <file> [--k N] [--out report.json]`, read-only retrieval scoring (hit rate, MRR) so tunable changes can prove non-degradation (NFR-11) (#19)
+
 ## v0.2.0 - 2026-08-25
 
 The trustworthiness release: memory present when needed, store stays clean without manual effort, no memo lost regardless of where it was written, nothing sensitive persisted.

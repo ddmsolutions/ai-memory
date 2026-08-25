@@ -139,7 +139,7 @@ The behavioural model of ai-memory. Every use case decomposes into numbered requ
 - **UC-25 Purge a subject** - PLANNED-0.3. One confirmed command erases an entity or session everywhere. FR-N2.
 - **UC-26 Graph-aware recall** - PLANNED-0.3. The task's entity neighbourhood joins the pack, budget-capped. FR-N3.
 - **UC-27 Explain a memory** - PLANNED-0.3. `why <id>` tells the row's full story. FR-M1.
-- **UC-28 Measure recall quality** - PLANNED-0.3. Labelled eval set, precision per run. FR-M2, NFR-11.
+- **UC-28 Measure recall quality** - LIVE (shipped early, 2026-08-25). Labelled eval set via `eval` CLI, hit rate + MRR per run, read-only. FR-M2, NFR-11.
 - **UC-29 Lint the store** - PLANNED-0.3. One health pass; dead evidence takes a confidence penalty. FR-M3.
 - **UC-30 Export / import** - PLANNED-0.3. Lossless JSON round trip with dedup. FR-X1, FR-X2.
 - **UC-31 Proactive skill routing** - PLANNED-0.3. The model saves and consults memory without being told. FR-D1.

@@ -52,6 +52,11 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("decay", help="age out old unpromoted, unrecalled, unpinned episodics")
     d.add_argument("--dry-run", action="store_true", help="list what would go, delete nothing")
 
+    ev = sub.add_parser("eval", help="run a labelled question set against recall (read-only)")
+    ev.add_argument("--questions", type=Path, required=True)
+    ev.add_argument("--k", type=int, default=5)
+    ev.add_argument("--out", type=Path, help="write the full JSON report here")
+
     pr = sub.add_parser("promote", help="promote an episodic into semantic/procedural")
     pr.add_argument("id", type=int)
     pr.add_argument("--type", dest="mtype", required=True, choices=("semantic", "procedural"))
@@ -111,6 +116,12 @@ def main(argv: list[str] | None = None) -> int:
             print("nothing to consolidate")
         for row in rows:
             print(f"#{row['id']} {row['created_at']} {row['content']}")
+    elif args.command == "eval":
+        from . import evalharness
+
+        report = evalharness.run_eval_file(conn, args.questions, k=args.k, out_path=args.out)
+        summary = {key: report[key] for key in ("questions", "hits", "hit_rate", "mrr", "misses")}
+        print(json.dumps(summary, indent=2))
     elif args.command == "decay":
         rows = store.decay(conn, dry_run=args.dry_run)
         verb = "would decay" if args.dry_run else "decayed"
