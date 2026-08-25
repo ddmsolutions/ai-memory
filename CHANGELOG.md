@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Mentions bridge (schema v4): `memory_entities` join table, `entity mention` / `entity about` CLI, `v_entity_memories` view (#25)
+- Purge by subject: `purge --entity X | --session Y --yes` erases memories, mentions, edges and the entity; secure_delete + VACUUM guarantee no residual bytes (#26)
+
 - Injection screen (FR-C8): instruction-shaped memos (override/hijack/concealment/system-prompt patterns) are quarantined under a reserved scope, excluded from every recall surface, reviewable via explicit search (#22)
 
 - Valence + staleness (schema v3): `valence` on episodes (CLI flag + `valence:` memo line, surfaced in the consolidation listing) and `verify_by` on facts; overdue facts recall with a VERIFY warning (#21)

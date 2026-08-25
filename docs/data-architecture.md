@@ -15,6 +15,8 @@ erDiagram
     MEMORIES ||--o{ EDGES : "memory_id (evidence)"
     MEMORIES ||--|| MEMORIES_FTS : "id = rowid (trigger-synced index)"
     MEMORIES ||--o{ INJECTION_LOG : "memory_id (injected this session)"
+    MEMORIES ||--o{ MEMORY_ENTITIES : "mentions"
+    ENTITIES ||--o{ MEMORY_ENTITIES : "mentioned by"
 
     MEMORIES {
         integer id PK
@@ -58,6 +60,12 @@ erDiagram
         text session_id PK
         integer memory_id PK "FK, cascade delete"
         text injected_at
+    }
+
+    MEMORY_ENTITIES {
+        integer memory_id PK "FK, cascade delete"
+        integer entity_id PK "FK, cascade delete"
+        text created_at
     }
 ```
 
@@ -135,6 +143,16 @@ stateDiagram-v2
 
 Session-level injection dedup: a memory injected once in a session (session-start pack or turn-time recall) is never injected again that session (FR-R5). Added by migration 2.
 
+### memory_entities (schema v4)
+
+| Column | Type | Null | Default | Meaning |
+|--------|------|------|---------|---------|
+| memory_id | INTEGER | PK | - | FK memories.id, ON DELETE CASCADE |
+| entity_id | INTEGER | PK | - | FK entities.id, ON DELETE CASCADE |
+| created_at | TEXT | no | now | When the mention was recorded |
+
+The bridge between the memory store and the graph (FR-N1): "everything about X" is one query (`v_entity_memories` view), and purge-by-subject (FR-N2) walks it to erase an entity everywhere. Purge uses `secure_delete` + VACUUM so deleted content leaves no residual bytes in freed pages.
+
 ### memories_fts
 
 FTS5 virtual table over `memories.content` (external-content mode, `content_rowid = id`), kept in sync by three triggers (`memories_ai` / `memories_ad` / `memories_au`). It is an index, not a store: never write to it directly.
@@ -157,6 +175,7 @@ Candidate-key uniques (`entities(name, etype)`, `edges(src, dst, rel)`) double a
 |------|-----------|---------|
 | `v_active_memories` | memories where `superseded_by IS NULL` | THE read surface for current truth. Search and recall go through it; the exclusion of corrected rows is defined once, not repeated per query. |
 | `v_consolidation_backlog` | active episodic rows with `consolidated = 0` | One definition of "what consolidation still owes", shared by `/memory consolidate` and `status`. |
+| `v_entity_memories` | mentions joined to entity names and full memory rows | "Everything about X" in one query; substrate for purge and graph-aware recall |
 | `v_edges_named` | edges joined to src/dst entity names and types | Human-readable graph inspection in one query; stable surface for the future `why` command and viewer. |
 
 Views are read-only surfaces; all writes (insert, recall-counter bumps, supersession) go to the base tables.

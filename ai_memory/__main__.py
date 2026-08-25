@@ -77,6 +77,17 @@ def build_parser() -> argparse.ArgumentParser:
     el.add_argument("--weight", type=float, default=1.0)
     es = esub.add_parser("show")
     es.add_argument("name")
+    em = esub.add_parser("mention", help="link a memory to an entity it mentions")
+    em.add_argument("memory_id", type=int)
+    em.add_argument("name")
+    em.add_argument("--etype", default=None)
+    eab = esub.add_parser("about", help="everything we know about an entity")
+    eab.add_argument("name")
+
+    pg = sub.add_parser("purge", help="erase everything about an entity or session (hard delete)")
+    pg.add_argument("--entity")
+    pg.add_argument("--session")
+    pg.add_argument("--yes", action="store_true", help="actually delete; without it, dry-run report only")
     return p
 
 
@@ -145,6 +156,27 @@ def main(argv: list[str] | None = None) -> int:
             print(f"edge #{edge_id} {args.src} -{args.rel}-> {args.dst}")
         elif args.entity_command == "show":
             print(graph.describe(conn, args.name))
+        elif args.entity_command == "mention":
+            graph.mention(conn, args.memory_id, args.name, etype=args.etype)
+            print(f"memory #{args.memory_id} mentions {args.name}")
+        elif args.entity_command == "about":
+            rows = graph.memories_about(conn, args.name)
+            if not rows:
+                print(f"nothing recorded about {args.name}")
+            for row in rows:
+                print(f"#{row['id']} [{row['type']}] {row['content']}")
+    elif args.command == "purge":
+        try:
+            report = graph.purge_subject(
+                conn, entity_name=args.entity, session_id=args.session,
+                dry_run=not args.yes,
+            )
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        verb = "would erase" if report["dry_run"] else "erased"
+        print(f"{verb}: {report['memories']} memories, {report['entities']} entities,"
+              f" {report['edges']} edges" + ("" if args.yes else "  (add --yes to delete)"))
     return 0
 
 

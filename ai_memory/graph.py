@@ -72,6 +72,93 @@ def neighbours(conn: sqlite3.Connection, name: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def mention(
+    conn: sqlite3.Connection,
+    memory_id: int,
+    entity_name: str,
+    etype: str | None = None,
+) -> int:
+    """FR-N1: link a memory to an entity it mentions, auto-creating the entity."""
+    if conn.execute("SELECT 1 FROM memories WHERE id = ?", (memory_id,)).fetchone() is None:
+        raise ValueError(f"no memory with id {memory_id}")
+    ent = find_entity(conn, entity_name)
+    entity_id = ent["id"] if ent else add_entity(conn, entity_name, etype=etype or "thing")
+    conn.execute(
+        "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id) VALUES (?, ?)",
+        (memory_id, entity_id),
+    )
+    conn.commit()
+    return entity_id
+
+
+def memories_about(conn: sqlite3.Connection, entity_name: str) -> list[sqlite3.Row]:
+    """Everything we know about X, in one query (via v_entity_memories)."""
+    return conn.execute(
+        "SELECT * FROM v_entity_memories WHERE entity_name = ? COLLATE NOCASE"
+        " AND superseded_by IS NULL ORDER BY created_at DESC",
+        (entity_name,),
+    ).fetchall()
+
+
+def purge_subject(
+    conn: sqlite3.Connection,
+    entity_name: str | None = None,
+    session_id: str | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """FR-N2: erase everything about an entity (memories that mention it, its
+    edges, the entity itself) or everything captured in a session. Hard delete;
+    FTS and joins are cleaned by triggers and cascades. Returns counts."""
+    if not entity_name and not session_id:
+        raise ValueError("purge needs an entity name or a session id")
+    memory_ids: set[int] = set()
+    entity_ids: list[int] = []
+    edge_count = 0
+    if entity_name:
+        entity_ids = [
+            r["id"] for r in conn.execute(
+                "SELECT id FROM entities WHERE name = ? COLLATE NOCASE", (entity_name,)
+            )
+        ]
+        for eid in entity_ids:
+            memory_ids.update(
+                r[0] for r in conn.execute(
+                    "SELECT memory_id FROM memory_entities WHERE entity_id = ?", (eid,)
+                )
+            )
+            edge_count += conn.execute(
+                "SELECT COUNT(*) FROM edges WHERE src = ? OR dst = ?", (eid, eid)
+            ).fetchone()[0]
+    if session_id:
+        memory_ids.update(
+            r[0] for r in conn.execute(
+                "SELECT id FROM memories WHERE origin_session = ?", (session_id,)
+            )
+        )
+    report = {
+        "memories": len(memory_ids),
+        "entities": len(entity_ids),
+        "edges": edge_count,
+        "dry_run": dry_run,
+    }
+    if dry_run:
+        return report
+    # Plain DELETE leaves row bytes in freed pages; a purge must actually
+    # remove them. secure_delete zeroes freed content, VACUUM rebuilds the file.
+    conn.execute("PRAGMA secure_delete = ON")
+    if memory_ids:
+        qmarks = ",".join("?" * len(memory_ids))
+        conn.execute(f"DELETE FROM memories WHERE id IN ({qmarks})", list(memory_ids))
+    for eid in entity_ids:
+        conn.execute("DELETE FROM entities WHERE id = ?", (eid,))
+    if session_id:
+        conn.execute("DELETE FROM injection_log WHERE session_id = ?", (session_id,))
+    conn.commit()
+    conn.execute("VACUUM")
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    return report
+
+
 def describe(conn: sqlite3.Connection, name: str) -> str:
     """One-paragraph markdown summary of an entity and its relationships."""
     ent = find_entity(conn, name)

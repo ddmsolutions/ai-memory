@@ -93,7 +93,7 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
@@ -123,6 +123,21 @@ MIGRATIONS: dict[int, list[str]] = {
         "  SELECT * FROM memories WHERE superseded_by IS NULL",
         "CREATE VIEW v_consolidation_backlog AS"
         "  SELECT * FROM v_active_memories WHERE type = 'episodic' AND consolidated = 0",
+    ],
+    4: [
+        # FR-N1: mentions bridge between memories and the entity graph.
+        """CREATE TABLE IF NOT EXISTS memory_entities (
+             memory_id  INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+             entity_id  INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+             created_at TEXT NOT NULL DEFAULT (datetime('now')),
+             PRIMARY KEY (memory_id, entity_id)
+           )""",
+        "CREATE INDEX IF NOT EXISTS ix_mention_entity ON memory_entities(entity_id)",
+        "CREATE VIEW IF NOT EXISTS v_entity_memories AS"
+        "  SELECT e.name AS entity_name, e.etype, m.*"
+        "  FROM memory_entities me"
+        "  JOIN entities e ON e.id = me.entity_id"
+        "  JOIN memories m ON m.id = me.memory_id",
     ],
 }
 
