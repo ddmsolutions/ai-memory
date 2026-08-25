@@ -44,6 +44,10 @@ Everything below delivered except where marked; details in CHANGELOG.md.
 - Onboarding importer: seed a store from an existing CLAUDE.md or notes file
 - CONTRIBUTING.md once outside interest appears
 
+## v0.6 - self-learning (planned; epic on GitHub)
+
+The ladder, in build order: self-tuning parameters, self-generating evals, gated autonomous consolidation, self-maintenance observer, policy learning. Governing rule (FR-SL6): every loop is judged by a metric it cannot modify and is switched off if it does not move it. Two autonomy decisions pending with the owner: consolidation's write autonomy over live store content, and whether the observer posts issues unattended or drafts for review.
+
 ## Later
 
 - [SHIPPED 2026-08-25, v0.4] Handoff (working) memory: a session-continuity row ("state of play: migration half done, tests 3 and 7 failing") written by a dying session, consumed by the next, then discarded, never consolidated. Distinct lifecycle: one writer, one reader.

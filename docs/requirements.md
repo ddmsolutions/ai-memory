@@ -115,6 +115,15 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 - **FR-D2** Subagent spawn MUST be able to inject a scoped recall pack into the spawned agent's context.
 - **FR-V1** An optional embedding layer MAY back `search` (local model, fail-soft, hybrid rank with FTS); absence changes nothing.
 
+### Self-learning (FR-SL, v0.6 draft; autonomy decisions pending, see epic)
+
+- **FR-SL1** A `tune` command MUST grid-search configured tunables (decay windows, half-lives, thresholds, caps) against the eval harness and benchmark, adopting a candidate config only when no tracked metric degrades (NFR-11 by construction); every adopted config is versioned and revertible.
+- **FR-SL2** The eval set MUST grow from real failures: a trace judged not-useful generates a labelled question, and a captured memo that near-duplicates an existing active memory MUST be detected as a recall failure, generating both an eval question and a lint finding.
+- **FR-SL3** An autonomous consolidation session MUST be able to run headless (distil, resolve contradictions, triage verify_by) gated by: export snapshot before, eval regression check after, uncertain promotions quarantined, every write traceable via lineage.
+- **FR-SL4** Policy learning (screen patterns, stopwords, promotion heuristics) MUST validate proposed changes against the historical corpus with zero regressions before adoption; initially human-approved.
+- **FR-SL5** A self-maintenance session MUST be able to observe (scorecard, lint, traces) and raise tracker issues from findings; implementing those issues stays human-triggered until the benchmark holds a months-long baseline.
+- **FR-SL6** Every learning loop MUST be judged against a metric it cannot modify, and MUST be individually disableable; a loop that does not move its metric is switched off (the exit condition applies per loop).
+
 ## Non-functional requirements
 
 - **NFR-1 Fail-soft hooks.** No hook may ever block a session: every error path swallows and exits 0. Hard invariant, test-covered per hook.

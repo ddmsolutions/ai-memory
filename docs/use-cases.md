@@ -152,4 +152,10 @@ The behavioural model of ai-memory. Every use case decomposes into numbered requ
 - **UC-37 Prove the memory's value** - LIVE (2026-08-26). `bench/run.py`: A/B probe battery, seeded vs empty store, identical hooks; per-behaviour deltas + token overhead. FR-M5.
 - **UC-38 Weekly scorecard** - LIVE (2026-08-26). `scorecard --days 7`: the five-minute longitudinal ritual behind the exit condition. FR-M6.
 
+- **UC-39 Self-tune the knobs** - PLANNED-0.6. Grid-search tunables, adopt only non-degrading configs. FR-SL1, NFR-11.
+- **UC-40 Grow the eval set from failures** - PLANNED-0.6. Not-useful traces and re-explanation detection become labelled questions. FR-SL2.
+- **UC-41 Autonomous consolidation** - PLANNED-0.6. Headless distil/lint/triage behind snapshot + regression gates. FR-SL3.
+- **UC-42 Learn the policies** - PLANNED-0.6. Screens and heuristics proposed from experience, corpus-validated, human-approved. FR-SL4.
+- **UC-43 Self-maintenance session** - PLANNED-0.6. Observe and raise issues autonomously; implement on human trigger. FR-SL5.
+
 Later (design sketch in `roadmap.md`): UC-36 team tier (multi-user PostgreSQL).
