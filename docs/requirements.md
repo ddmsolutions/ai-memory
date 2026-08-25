@@ -57,6 +57,13 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 - **FR-G3** `entity link` MUST upsert a typed weighted edge on (src, dst, rel), auto-creating missing endpoint entities, optionally citing an evidence memory.
 - **FR-G4** `entity show` MUST render the node with its relationships in both directions, ordered by weight; a human-readable joined view (`v_edges_named`) MUST exist for inspection.
 
+### Graph viewer (FR-G5..G8, v0.7 draft)
+
+- **FR-G5** `graph` MUST generate a single self-contained HTML viewer: graph JSON embedded, JS library vendored (no CDN, no network); the file opens offline and never transmits store content.
+- **FR-G6** The viewer MUST render both layers (entities + edges, memories + memory_links) joined by mentions, with semantic encodings: colour by kind, node size by recall count, edge thickness by time-decayed effective weight, dashed near the prune floor, verify_by overdue flagged.
+- **FR-G7** Ego focus MUST be first-class: click collapses to the node's 1-2 hop neighbourhood, expandable per hop; plus filters (scope, type, rel, minimum weight, date) and search-and-centre; clicking a memory shows its `why` story.
+- **FR-G8** The viewer is a read surface: it MUST read through `v_active_memories` (quarantine and superseded excluded by default); `--include-quarantine` renders them visually branded untrusted.
+
 ### Operations (FR-O)
 
 - **FR-O1** `status` MUST report machine-readable counts: per-type totals, pinned, consolidation backlog (active rows only), entities, edges.
@@ -167,6 +174,7 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 | UC-35 Handoff memory | FR-W1..W3, NFR-1 | store.py, hooks/capture.py, CLI | backlog #35 | LIVE |
 | UC-37 A/B benchmark | FR-M5, NFR-11 | bench/ | v0.5 #37 | LIVE |
 | UC-38 Weekly scorecard | FR-M6, NFR-11 | store.py, CLI | v0.5 #38 | LIVE |
+| UC-44 Explore the graph visually | FR-G5..G8 | graphviz module + CLI | v0.7 | PLANNED |
 
 Cross-cutting NFRs (1, 3, 6, 7, 9, 10) apply to every section and are re-checked at each section's Definition of Done.
 

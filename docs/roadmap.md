@@ -55,7 +55,7 @@ The ladder, in build order: self-tuning parameters, self-generating evals, gated
 - Multi-user PostgreSQL backend (far): a team-shared application-memory tier (multi-tenant with row-level security, single write path with supersession, promotion from local stores as the only ingress) behind the same engine interface. The local SQLite store stays the default and the system of origin; this tier exists for teams, not to replace local-first. Bitemporality deliberately excluded unless "what did we believe in March" becomes a real query.
 - Case-based memory: a worked-examples library ("how we solved X"), promotable from episodic clusters
 - Multi-store federation (query several stores by identifier without merging)
-- A small HTML graph viewer for the entity store
+- [PLANNED v0.7, issues on GitHub] Visual graph viewer: single-file offline HTML over both layers (entities + memory links + mentions), ego focus, decay-aware encodings; P2 adds live --serve mode and a decay time scrubber
 - Consolidation quality metrics: which promoted memories actually get recalled and used (feeds utility feedback)
 
 Deliberately NOT planned: a user-preference type (that is semantic/procedural with a scope), spatial/codebase memory (the entity graph covers it with etype file/system), and working-memory-as-scratchpad (the context window already is one).

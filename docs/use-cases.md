@@ -158,4 +158,6 @@ The behavioural model of ai-memory. Every use case decomposes into numbered requ
 - **UC-42 Learn the policies** - PLANNED-0.6. Screens and heuristics proposed from experience, corpus-validated, human-approved. FR-SL4.
 - **UC-43 Self-maintenance session** - PLANNED-0.6. Observe and raise issues autonomously; implement on human trigger. FR-SL5.
 
+- **UC-44 Explore the graph visually** - PLANNED-0.7. Self-contained offline HTML: both layers + mentions, ego focus, filters, why panel; quarantine excluded by default. FR-G5..G8.
+
 Later (design sketch in `roadmap.md`): UC-36 team tier (multi-user PostgreSQL).
