@@ -38,11 +38,11 @@ The behavioural model of ai-memory. Every use case decomposes into numbered requ
 - **Postcondition:** every distinct memo of the session exists exactly once as episodic.
 - **Requirements:** FR-C1, FR-C2, FR-C3, FR-C4, NFR-1, NFR-2.
 
-### UC-04 Capture subagent memos - PLANNED-0.2 (Section 4)
+### UC-04 Capture subagent memos - LIVE (v0.2)
 - As UC-03, but triggered by SubagentStop so memos written by background agents are not lost. Same dedup, same fail-soft.
 - **Requirements:** FR-C5, NFR-1.
 
-### UC-05 Refuse secrets at capture - PLANNED-0.2 (Section 5)
+### UC-05 Refuse secrets at capture - LIVE (v0.2)
 - **Actor:** Stop hook. **Trigger:** a memo containing credential-shaped content (key prefixes, bearer tokens, PEM blocks, high-entropy strings).
 - **Main flow:** matched spans are redacted with a placeholder before insert; the rest of the memo survives.
 - **Postcondition:** no plaintext secret is ever persisted.
@@ -63,7 +63,7 @@ The behavioural model of ai-memory. Every use case decomposes into numbered requ
 - **Postcondition:** the session begins with the pack in context.
 - **Requirements:** FR-R1, FR-R2, FR-R3, FR-R4, NFR-1.
 
-### UC-08 Turn-time recall - PLANNED-0.2 (Section 6)
+### UC-08 Turn-time recall - LIVE (v0.2)
 - **Actor:** UserPromptSubmit hook. **Trigger:** each user prompt.
 - **Main flow:** FTS-match the prompt against active memories in scope, inject the top N matches (config-capped) not already in the session-start pack.
 - **Errors:** fail-soft; zero matches injects nothing.
@@ -74,7 +74,7 @@ The behavioural model of ai-memory. Every use case decomposes into numbered requ
 - **Main flow:** FTS query over active memories (superseded excluded unless explicitly included), ranked by bm25.
 - **Requirements:** FR-R7, FR-R8.
 
-### UC-10 Project-scoped recall - PLANNED-0.2 (Section 7)
+### UC-10 Project-scoped recall - LIVE (v0.2)
 - **Actor:** hooks. **Trigger:** any recall while working in a mapped project directory.
 - **Main flow:** resolve cwd to a project slug via config; pack and turn-time recall filter to that scope plus `global`.
 - **Requirements:** FR-R9, FR-R10.
@@ -98,7 +98,7 @@ The behavioural model of ai-memory. Every use case decomposes into numbered requ
 - **Main flow:** pin exempts a row from decay and leads every pack; forget hard-deletes the row (FTS index cleaned by trigger, evidence FKs null out).
 - **Requirements:** FR-K5, FR-K6, NFR-3.
 
-### UC-14 Decay old episodics - PLANNED-0.2 (Section 8)
+### UC-14 Decay old episodics - LIVE (v0.2)
 - **Actor:** User or scheduled task. **Trigger:** `decay [--dry-run]`.
 - **Main flow:** delete episodic rows older than the configured window that were never promoted, never recalled, and are not pinned; report what went (or would go).
 - **Requirements:** FR-K7, FR-K8, NFR-4.
@@ -117,12 +117,12 @@ The behavioural model of ai-memory. Every use case decomposes into numbered requ
 - **Main flow:** report counts per type, pinned, backlog size, entities, edges as JSON.
 - **Requirements:** FR-O1.
 
-### UC-17 Configure behaviour - PLANNED-0.2 (Section 3)
+### UC-17 Configure behaviour - LIVE (v0.2)
 - **Actor:** User. **Trigger:** editing the config file.
 - **Main flow:** engine reads config once per invocation, missing file or bad values fall back to documented defaults, silently.
 - **Requirements:** FR-O2, FR-O3, NFR-1.
 
-### UC-18 Survive a schema change - PLANNED-0.2 (Section 2)
+### UC-18 Survive a schema change - LIVE (v0.2)
 - **Actor:** CLI/hooks (system). **Trigger:** first connect after upgrading the code.
 - **Main flow:** compare `PRAGMA user_version` with the code's version, apply ordered migrations, stamp the new version.
 - **Errors:** a failed migration leaves the store untouched (transactional) and reports; hooks fail soft, CLI fails loud.

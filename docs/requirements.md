@@ -28,7 +28,7 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 ### Recall (FR-R)
 
 - **FR-R1** The SessionStart hook MUST emit the compiled recall pack via `hookSpecificOutput.additionalContext`, and emit nothing when the pack is empty.
-- **FR-R2** (amended 2026-08-25) Pack compilation MUST order: pinned (newest first), then procedural, then semantic, then task FTS matches when a task is given; deduplicated across sections; per-section caps derived from the limit. Within the procedural and semantic sections, ordering MUST use an eviction score of the shape confidence × recency decay × usage saturation (tunables from config); raw confidence ordering is the interim behaviour until v0.2 S6 lands the scored version.
+- **FR-R2** (amended 2026-08-25) Pack compilation MUST order: pinned (newest first), then procedural, then semantic, then task FTS matches when a task is given; deduplicated across sections; per-section caps derived from the limit. Within the procedural and semantic sections, ordering MUST use an eviction score of the shape confidence × recency decay × usage saturation (tunables from config). Shipped in v0.2.
 - **FR-R3** Every row included in a pack MUST have recall_count incremented and last_recalled_at stamped, in the same transaction as compilation.
 - **FR-R4** The pack MUST open with a marker identifying it as injected memory context to be verified if critical.
 - **FR-R5** (v0.2) A UserPromptSubmit hook MUST inject the top task-relevant active memories matching the user's prompt, capped by config, excluding rows already injected this session.
@@ -128,23 +128,23 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 | UC-01 Initialise | FR-S1..S3, NFR-5 | db.py | v0.1 | LIVE |
 | UC-02 Install | FR-H (hooks wiring: see install.md), NFR-1 | hooks.json, install.md | v0.1 | LIVE |
 | UC-03 Turn capture | FR-C1..C4, NFR-1, NFR-2 | hooks/capture.py | v0.1 (+index fix) | LIVE |
-| UC-04 Subagent capture | FR-C5, NFR-1 | hooks | v0.2 S4 | PLANNED |
-| UC-05 Secret filter | FR-C6, FR-C7, NFR-3 | hooks + engine | v0.2 S5 | PLANNED |
+| UC-04 Subagent capture | FR-C5, NFR-1 | hooks | v0.2 S4 | LIVE |
+| UC-05 Secret filter | FR-C6, FR-C7, NFR-3 | hooks + engine | v0.2 S5 | LIVE |
 | UC-06 Remember | FR-S4, FR-S5, FR-K1 | store.py, CLI | v0.1 | LIVE |
 | UC-07 Session-start recall | FR-R1..R4, FR-R11, NFR-1, NFR-4 | hooks/session_start.py, store.py | v0.1 | LIVE |
-| UC-08 Turn-time recall | FR-R5, FR-R6, FR-R11, NFR-1, NFR-4 | new hook + store.py | v0.2 S6 | PLANNED |
+| UC-08 Turn-time recall | FR-R5, FR-R6, FR-R11, NFR-1, NFR-4 | new hook + store.py | v0.2 S6 | LIVE |
 | UC-09 Search | FR-R7, FR-R8, FR-S6, FR-S7 | store.py, CLI | v0.1 | LIVE |
-| UC-10 Project scoping | FR-R9, FR-R10 | hooks + config | v0.2 S7 | PLANNED |
+| UC-10 Project scoping | FR-R9, FR-R10 | hooks + config | v0.2 S7 | LIVE |
 | UC-11 Consolidate | FR-K2..K4, NFR-7 | store.py, /memory command | v0.1 | LIVE |
 | UC-12 Correct | FR-K1, FR-S5, FR-R8 | store.py | v0.1 | LIVE |
 | UC-13 Pin / forget | FR-K5, FR-K6, NFR-3 | store.py, CLI | v0.1 | LIVE |
-| UC-14 Decay | FR-K7, FR-K8, NFR-4 | store.py, CLI | v0.2 S8 | PLANNED |
+| UC-14 Decay | FR-K7, FR-K8, NFR-4 | store.py, CLI | v0.2 S8 | LIVE |
 | UC-15 Entity graph | FR-G1..G4 | graph.py, CLI | v0.1 (+index fix) | LIVE |
 | UC-16 Status | FR-O1 | store.py, CLI | v0.1 | LIVE |
-| UC-17 Config | FR-O2, FR-O3, NFR-1 | new config module | v0.2 S3 | PLANNED |
-| UC-18 Migrations | FR-O4, FR-O5, NFR-5 | db.py | v0.2 S2 | PLANNED |
-| (infra) CI | NFR-10 | GitHub Actions | v0.2 S1 | PLANNED |
-| (release) | changelog, tag | docs | v0.2 S9 | PLANNED |
+| UC-17 Config | FR-O2, FR-O3, NFR-1 | new config module | v0.2 S3 | LIVE |
+| UC-18 Migrations | FR-O4, FR-O5, NFR-5 | db.py | v0.2 S2 | LIVE |
+| (infra) CI | NFR-10 | GitHub Actions | v0.2 S1 | LIVE |
+| (release) | changelog, tag | docs | v0.2 S9 | LIVE |
 
 Cross-cutting NFRs (1, 3, 6, 7, 9, 10) apply to every section and are re-checked at each section's Definition of Done.
 

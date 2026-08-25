@@ -64,7 +64,7 @@ A `decay` CLI command: episodics older than the configured window (default 30 da
 
 ### Section 9: Release hygiene
 Version bump to 0.2.0, changelog, docs updated (install, architecture, data-architecture where behaviour changed), tag `v0.2.0`.
-- Status: [ ] not started
+- Status: [x] complete (issue #10) - v0.2 SHIPPED 2026-08-25
 
 ## Out of scope for v0.2 (deliberately)
 
