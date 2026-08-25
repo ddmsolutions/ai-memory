@@ -30,6 +30,7 @@ tests/            pytest suite; every behaviour change lands with a test
 - Supersession over mutation: to correct a memory, insert a new row with `supersedes`, never rewrite history in place.
 - The engine does deterministic bookkeeping; judgement (what to remember, how to distil) belongs to the model via `commands/memory.md`. Keep that boundary.
 - DB path resolution goes through `db.default_db_path()` (`AI_MEMORY_DB` override). Never hardcode a path.
+- Any change to the DDL in `ai_memory/db.py` updates `docs/data-architecture.md` (ER diagram, data dictionary, lifecycle) in the SAME commit. Render-test changed Mermaid blocks with mermaid-cli before committing.
 - No em or en dashes in any file. Hyphens, commas, colons.
 - British spelling in prose, US spelling only where an API demands it.
 

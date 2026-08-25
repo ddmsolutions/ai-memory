@@ -24,7 +24,7 @@ Stop hook ──▶ episodic ──consolidate──▶ semantic ──┐
 
 ## Storage
 
-One SQLite file (`~/.ai-memory/memory.db`, override with `AI_MEMORY_DB`). Three tables plus an FTS5 index:
+Full data model, ER diagram and data dictionary: `data-architecture.md`. In brief: one SQLite file (`~/.ai-memory/memory.db`, override with `AI_MEMORY_DB`), three tables plus an FTS5 index:
 
 - `memories(id, type, scope, content, origin_session, promoted_from, confidence, pinned, consolidated, superseded_by, recall_count, last_recalled_at, created_at)`
 - `entities(id, name, etype, summary)` with `UNIQUE(name, etype)`
