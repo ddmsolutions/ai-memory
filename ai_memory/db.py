@@ -93,7 +93,7 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
@@ -171,6 +171,16 @@ MIGRATIONS: dict[int, list[str]] = {
              PRIMARY KEY (src_memory, dst_memory, rel)
            )""",
         "CREATE INDEX IF NOT EXISTS ix_links_dst ON memory_links(dst_memory)",
+    ],
+    7: [
+        # FR-V1: optional embedding layer. Vectors stored as JSON text: readable,
+        # stdlib-only, adequate at local-store scale.
+        """CREATE TABLE IF NOT EXISTS memory_embeddings (
+             memory_id  INTEGER PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE,
+             model      TEXT NOT NULL,
+             vector     TEXT NOT NULL,
+             created_at TEXT NOT NULL DEFAULT (datetime('now'))
+           )""",
     ],
 }
 

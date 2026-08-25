@@ -72,6 +72,7 @@ def search(
     scope: str | None = None,
     limit: int = 20,
     include_superseded: bool = False,
+    cfg: dict | None = None,
 ) -> list[sqlite3.Row]:
     table = "memories" if include_superseded else "v_active_memories"
     sql = (
@@ -88,7 +89,38 @@ def search(
         params.append(scope)
     sql += " ORDER BY rank LIMIT ?"
     params.append(limit)
-    return conn.execute(sql, params).fetchall()
+    rows = conn.execute(sql, params).fetchall()
+    # FR-V1: optional semantic augmentation. FTS results lead; embedding
+    # candidates fill remaining slots. Any failure degrades to FTS-only.
+    if cfg and cfg.get("embed_enabled") and len(rows) < limit:
+        try:
+            from . import embeddings
+
+            have = {r["id"] for r in rows}
+            for memory_id, _sim in embeddings.semantic_candidates(conn, query, cfg, limit * 2):
+                if memory_id in have:
+                    continue
+                extra_sql = (
+                    "SELECT *, 0.0 AS rank FROM "
+                    + ("memories" if include_superseded else "v_active_memories")
+                    + " WHERE id = ?"
+                )
+                extra_params: list = [memory_id]
+                if mtype:
+                    extra_sql += " AND type = ?"
+                    extra_params.append(mtype)
+                if scope:
+                    extra_sql += " AND scope IN (?, 'global')"
+                    extra_params.append(scope)
+                extra = conn.execute(extra_sql, extra_params).fetchone()
+                if extra is not None:
+                    rows.append(extra)
+                    have.add(memory_id)
+                if len(rows) >= limit:
+                    break
+        except Exception:
+            pass
+    return rows
 
 
 def _eviction_order(cfg: dict) -> str:
@@ -434,7 +466,7 @@ def turn_recall(
     ][:32]
     if not terms:
         return ""
-    rows = search(conn, " ".join(terms), scope=scope, limit=cap * 4)
+    rows = search(conn, " ".join(terms), scope=scope, limit=cap * 4, cfg=cfg)
     # FR-R6: configurable relevance threshold on the bm25 score (higher = stricter).
     min_score = float(cfg["turn_recall_min_score"])
     if min_score > 0:

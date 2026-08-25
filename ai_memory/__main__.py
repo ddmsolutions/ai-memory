@@ -85,6 +85,7 @@ def build_parser() -> argparse.ArgumentParser:
     eab.add_argument("name")
 
     sub.add_parser("lint", help="store health: duplicates, overdue facts, stale rules, contradictions, quarantine")
+    sub.add_parser("embed-index", help="embed active memories via the configured local model (no-op when disabled)")
 
     w = sub.add_parser("why", help="explain a memory: origin, lineage, corrections, usage")
     w.add_argument("id", type=int)
@@ -198,6 +199,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"nothing recorded about {args.name}")
             for row in rows:
                 print(f"#{row['id']} [{row['type']}] {row['content']}")
+    elif args.command == "embed-index":
+        from . import config as _config, embeddings
+
+        cfg = _config.load()
+        if not cfg["embed_enabled"]:
+            print("embeddings disabled (config embed_enabled)")
+        else:
+            print(f"embedded {embeddings.index_memories(conn, cfg)} memories")
     elif args.command == "lint":
         findings = store.lint(conn)
         if not findings:

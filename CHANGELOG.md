@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Optional embedding layer (schema v7): Ollama-compatible local model, `embed-index` CLI, hybrid search with FTS results leading; disabled by default, any failure degrades silently to FTS-only, quarantined rows never embedded (#32)
+
 - Subagent spawn injection: PreToolUse hook on Task appends a small scoped pack (compiled against the subagent's own prompt) via updatedInput; spawn_pack_limit 0 disables (#31)
 - Proactive skill: description-routed skills/remembering routes save (memo/typed/correction/reminder) and consult (search/about/why) without the user typing /memory (#30)
 

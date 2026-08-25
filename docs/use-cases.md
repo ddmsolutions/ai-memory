@@ -144,6 +144,6 @@ The behavioural model of ai-memory. Every use case decomposes into numbered requ
 - **UC-30 Export / import** - LIVE (2026-08-25). Lossless JSON round trip with dedup. FR-X1, FR-X2.
 - **UC-31 Proactive skill routing** - LIVE (2026-08-25). The model saves and consults memory without being told. FR-D1.
 - **UC-32 Subagent spawn injection** - LIVE (2026-08-25). A spawned agent starts with a scoped pack. FR-D2.
-- **UC-33 Embedding-backed search** - PLANNED-0.3. Optional, local, fail-soft, hybrid with FTS. FR-V1.
+- **UC-33 Embedding-backed search** - LIVE (2026-08-25). Optional, local, fail-soft, hybrid with FTS. FR-V1.
 
 Later (design sketches in `roadmap.md`): UC-34 recall utility feedback (FR-M4), UC-35 handoff memory, UC-36 team tier (multi-user PostgreSQL).

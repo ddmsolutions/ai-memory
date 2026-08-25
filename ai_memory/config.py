@@ -20,6 +20,9 @@ DEFAULTS: dict = {
     "decay_window_days": 30,       # episodics older than this may decay
     "reinforce_step": 0.05,        # confidence bump per recall, capped at 1.0
     "spawn_pack_limit": 6,         # rows injected into a spawned subagent's prompt; 0 disables
+    "embed_enabled": False,        # optional semantic search layer (local model, fail-soft)
+    "embed_model": "nomic-embed-text",
+    "embed_url": "http://localhost:11434",  # Ollama-compatible /api/embeddings endpoint
     "link_half_life_days": 45.0,   # associative link weight decay
     "link_reinforce_factor": 0.15, # Hebbian: weight += (1 - weight) * factor
     "link_prune_floor": 0.02,      # effective weight below this is pruned at decay
