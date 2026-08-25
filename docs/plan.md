@@ -26,6 +26,8 @@ Four-store schema, FTS5 search, supersession, pinning, promote/consolidate primi
 
 Goal: after two weeks of real use, memory is present when needed (not just at session start), the store stays clean without manual effort, no memo is lost regardless of where it was written, and nothing sensitive is ever persisted.
 
+Honest exit condition: if after a month of dogfooding the store is not observably changing what the agent does, the answer is deletion, not tuning. Native context plus disciplined docs is a strong baseline; this project must beat it to earn its keep.
+
 Build order (one feature branch each, in this sequence; foundations before features):
 
 ### Section 1: CI

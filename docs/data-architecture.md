@@ -147,4 +147,5 @@ Views are read-only surfaces; all writes (insert, recall-counter bumps, superses
 - **3NF with one exception:** `recall_count` / `last_recalled_at` are derived aggregates kept on the row. A normalised `recall_events` table was rejected: one insert per memory per session start, and no current query needs the individual events. If per-event usage metrics land (roadmap), that table supersedes the counters.
 - **Supersession over mutation:** corrections insert a new row pointing at the old one via `superseded_by`; history is preserved, reads only ever see the latest truth.
 - **Foreign keys are enforced** (`PRAGMA foreign_keys = ON` on every connection); promotion lineage cannot dangle.
+- **WAL journal mode** on every connection: hooks and CLI can touch the store concurrently (Stop fires per turn) without writer contention; `-wal`/`-shm` sidecar files are gitignored alongside the store.
 - **Deletes are real:** `forget` removes the row (FTS trigger cleans the index; evidence FKs null out). The store holds personal data by design, so hard delete is a feature, not a risk.

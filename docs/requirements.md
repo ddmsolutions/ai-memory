@@ -27,7 +27,7 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 ### Recall (FR-R)
 
 - **FR-R1** The SessionStart hook MUST emit the compiled recall pack via `hookSpecificOutput.additionalContext`, and emit nothing when the pack is empty.
-- **FR-R2** Pack compilation MUST order: pinned (newest first), then procedural (confidence, recall_count), then semantic (confidence), then task FTS matches when a task is given; deduplicated across sections; per-section caps derived from the limit.
+- **FR-R2** (amended 2026-08-25) Pack compilation MUST order: pinned (newest first), then procedural, then semantic, then task FTS matches when a task is given; deduplicated across sections; per-section caps derived from the limit. Within the procedural and semantic sections, ordering MUST use an eviction score of the shape confidence × recency decay × usage saturation (tunables from config); raw confidence ordering is the interim behaviour until v0.2 S6 lands the scored version.
 - **FR-R3** Every row included in a pack MUST have recall_count incremented and last_recalled_at stamped, in the same transaction as compilation.
 - **FR-R4** The pack MUST open with a marker identifying it as injected memory context to be verified if critical.
 - **FR-R5** (v0.2) A UserPromptSubmit hook MUST inject the top task-relevant active memories matching the user's prompt, capped by config, excluding rows already injected this session.
@@ -36,6 +36,7 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 - **FR-R8** No read surface (search, pack, views, turn-time) may return a superseded row unless the caller explicitly requests history.
 - **FR-R9** (v0.2) The working directory MUST resolve to a project scope via config mapping; unmapped directories resolve to `global` behaviour unchanged.
 - **FR-R10** (v0.2) Scoped recall MUST return the union of the resolved scope and `global`.
+- **FR-R11** Every line emitted by any recall surface MUST carry its recorded date, so the model can discount stale facts (wrong-and-retrieved reads as authoritative; the date is the discount signal).
 
 ### Curation (FR-K)
 
@@ -86,8 +87,8 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 | UC-04 Subagent capture | FR-C5, NFR-1 | hooks | v0.2 S4 | PLANNED |
 | UC-05 Secret filter | FR-C6, FR-C7, NFR-3 | hooks + engine | v0.2 S5 | PLANNED |
 | UC-06 Remember | FR-S4, FR-S5, FR-K1 | store.py, CLI | v0.1 | LIVE |
-| UC-07 Session-start recall | FR-R1..R4, NFR-1, NFR-4 | hooks/session_start.py, store.py | v0.1 | LIVE |
-| UC-08 Turn-time recall | FR-R5, FR-R6, NFR-1, NFR-4 | new hook + store.py | v0.2 S6 | PLANNED |
+| UC-07 Session-start recall | FR-R1..R4, FR-R11, NFR-1, NFR-4 | hooks/session_start.py, store.py | v0.1 | LIVE |
+| UC-08 Turn-time recall | FR-R5, FR-R6, FR-R11, NFR-1, NFR-4 | new hook + store.py | v0.2 S6 | PLANNED |
 | UC-09 Search | FR-R7, FR-R8, FR-S6, FR-S7 | store.py, CLI | v0.1 | LIVE |
 | UC-10 Project scoping | FR-R9, FR-R10 | hooks + config | v0.2 S7 | PLANNED |
 | UC-11 Consolidate | FR-K2..K4, NFR-7 | store.py, /memory command | v0.1 | LIVE |
