@@ -840,6 +840,43 @@ def why(conn: sqlite3.Connection, memory_id: int) -> str:
     return "\n".join(lines)
 
 
+def scorecard(conn: sqlite3.Connection, days: int = 7) -> dict:
+    """FR-M6: the weekly dogfood scorecard. Read-only, like the eval harness:
+    measuring must never distort what is measured."""
+    window = f"-{int(days)} days"
+
+    def one(sql: str, *params) -> float | int:
+        return conn.execute(sql, params).fetchone()[0]
+
+    per_surface = {
+        r["surface"]: {"judged": r["judged"], "precision": round(r["precision"], 3)}
+        for r in conn.execute(
+            "SELECT surface, COUNT(*) AS judged, AVG(was_useful) AS precision"
+            " FROM recall_trace WHERE was_useful IS NOT NULL"
+            " AND created_at >= datetime('now', ?) GROUP BY surface", (window,))
+    }
+    return {
+        "period_days": int(days),
+        "injections": one(
+            "SELECT COUNT(*) FROM injection_log WHERE injected_at >= datetime('now', ?)", window),
+        "traces": one(
+            "SELECT COUNT(*) FROM recall_trace WHERE created_at >= datetime('now', ?)", window),
+        "traces_judged": one(
+            "SELECT COUNT(*) FROM recall_trace WHERE was_useful IS NOT NULL"
+            " AND created_at >= datetime('now', ?)", window),
+        "precision_by_surface": per_surface,
+        "new_memories": one(
+            "SELECT COUNT(*) FROM memories WHERE created_at >= datetime('now', ?)", window),
+        "consolidation_backlog": one("SELECT COUNT(*) FROM v_consolidation_backlog"),
+        "quarantined": one("SELECT COUNT(*) FROM memories WHERE scope = 'quarantine'"),
+        "open_handoffs": one("SELECT COUNT(*) FROM handoffs WHERE consumed_at IS NULL"),
+        "due_intentions": one(
+            "SELECT COUNT(*) FROM intentions WHERE status = 'pending'"
+            " AND trigger_kind = 'time' AND substr(trigger_value,1,10) <= date('now')"),
+        "memories_total": one("SELECT COUNT(*) FROM memories"),
+    }
+
+
 def status(conn: sqlite3.Connection) -> dict:
     counts = dict(
         conn.execute("SELECT type, COUNT(*) FROM memories GROUP BY type").fetchall()

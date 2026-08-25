@@ -20,6 +20,7 @@ Route as follows, running the CLI with `python -m ai_memory` from `${CLAUDE_PLUG
 - **handoff**: `handoff add "<state of play>"` queues a one-time note for the next session; `handoff list` reviews.
 - **why <id>** explains a memory's origin, lineage and usage; **related <id>** shows its ranked linked candidates (close scores are flagged ambiguous, present both).
 - **lint** runs the health pass (duplicates, overdue facts, stale rules, contradictions, quarantine, weak evidence).
+- **scorecard** (weekly ritual): run `scorecard`, summarise the trend vs last week, prompt the user to judge unjudged traces.
 - **feedback**: after a recall that helped or misled, find it with `trace list` and judge it: `feedback <trace_id> --useful|--not-useful`. Rejections make ranking better; use honestly.
 
 End any turn that established something durable with a fenced ```memo block containing a one-line outcome; the Stop hook captures it automatically.

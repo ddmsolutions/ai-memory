@@ -27,4 +27,4 @@ The ai-memory engine lives at `${CLAUDE_PLUGIN_ROOT}` and stores data in `~/.ai-
 
 ## Hygiene (when asked, or when injected context looks wrong)
 
-`lint` reports store health; when an injected memory clearly helped or misled, judge it (`trace list`, then `feedback <id> --useful|--not-useful`) so ranking learns; `consolidate` lists raw episodes to distil (`promote <id> --type <t> --content "<standalone rewrite>"`); `decay --dry-run` previews aging; `purge --entity <x> --yes` erases a subject completely.
+`scorecard` is the weekly five-minute review (judge unjudged traces while there); `lint` reports store health; when an injected memory clearly helped or misled, judge it (`trace list`, then `feedback <id> --useful|--not-useful`) so ranking learns; `consolidate` lists raw episodes to distil (`promote <id> --type <t> --content "<standalone rewrite>"`); `decay --dry-run` previews aging; `purge --entity <x> --yes` erases a subject completely.
