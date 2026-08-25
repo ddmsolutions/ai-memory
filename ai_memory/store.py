@@ -96,14 +96,16 @@ def _record_injection(conn: sqlite3.Connection, session_id: str | None, ids: lis
     )
 
 
-def _bump_recall(conn: sqlite3.Connection, ids: list[int]) -> None:
+def _bump_recall(conn: sqlite3.Connection, ids: list[int], step: float = 0.0) -> None:
+    """Count the recall and (FR-K8) reinforce: confidence rises by step, capped at 1.0."""
     if not ids:
         return
     qmarks = ",".join("?" * len(ids))
     conn.execute(
         f"UPDATE memories SET recall_count = recall_count + 1,"
-        f" last_recalled_at = datetime('now') WHERE id IN ({qmarks})",
-        ids,
+        f" last_recalled_at = datetime('now'),"
+        f" confidence = MIN(1.0, confidence + ?) WHERE id IN ({qmarks})",
+        [float(step), *ids],
     )
 
 
@@ -166,7 +168,7 @@ def recall_pack(
 
     recalled = [i for i in seen if i not in already_injected]
     if recalled:
-        _bump_recall(conn, recalled)
+        _bump_recall(conn, recalled, step=float(cfg["reinforce_step"]))
         _record_injection(conn, session_id, recalled)
         conn.commit()
 
@@ -202,7 +204,7 @@ def turn_recall(
     if not rows:
         return ""
     ids = [r["id"] for r in rows]
-    _bump_recall(conn, ids)
+    _bump_recall(conn, ids, step=float(cfg["reinforce_step"]))
     _record_injection(conn, session_id, ids)
     conn.commit()
     lines = ["<!-- ai-memory: relevant to this prompt; verify anything critical -->"]
@@ -248,6 +250,27 @@ def unconsolidated(conn: sqlite3.Connection, limit: int = 50) -> list[sqlite3.Ro
         "SELECT * FROM v_consolidation_backlog ORDER BY created_at LIMIT ?",
         (limit,),
     ).fetchall()
+
+
+def decay(conn: sqlite3.Connection, cfg: dict | None = None, dry_run: bool = False) -> list[sqlite3.Row]:
+    """FR-K7: delete episodic rows that are ALL of: older than the configured
+    window, never promoted, never recalled, not pinned. Returns the affected
+    rows; with dry_run they are listed but kept."""
+    if cfg is None:
+        cfg = config.load()
+    window = int(cfg["decay_window_days"])
+    rows = conn.execute(
+        "SELECT * FROM memories WHERE type = 'episodic' AND consolidated = 0"
+        " AND recall_count = 0 AND pinned = 0 AND created_at < datetime('now', ?)"
+        " ORDER BY created_at",
+        (f"-{window} days",),
+    ).fetchall()
+    if rows and not dry_run:
+        ids = [r["id"] for r in rows]
+        qmarks = ",".join("?" * len(ids))
+        conn.execute(f"DELETE FROM memories WHERE id IN ({qmarks})", ids)
+        conn.commit()
+    return rows
 
 
 def status(conn: sqlite3.Connection) -> dict:

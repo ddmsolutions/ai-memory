@@ -60,7 +60,7 @@ Resolve scope automatically from the hook payload's working directory (map cwd t
 
 ### Section 8: Decay and reinforcement
 A `decay` CLI command: episodics older than the configured window (default 30 days) that were never promoted and never recalled are deleted; repeated recall bumps confidence. Deterministic, dry-run flag, never touches pinned or promoted rows. Wire into /memory consolidate.
-- Status: [ ] not started
+- Status: [x] complete (issue #9)
 
 ### Section 9: Release hygiene
 Version bump to 0.2.0, changelog, docs updated (install, architecture, data-architecture where behaviour changed), tag `v0.2.0`.

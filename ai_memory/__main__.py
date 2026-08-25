@@ -49,6 +49,9 @@ def build_parser() -> argparse.ArgumentParser:
     c = sub.add_parser("consolidate", help="list unconsolidated episodics (distil with promote)")
     c.add_argument("--limit", type=int, default=50)
 
+    d = sub.add_parser("decay", help="age out old unpromoted, unrecalled, unpinned episodics")
+    d.add_argument("--dry-run", action="store_true", help="list what would go, delete nothing")
+
     pr = sub.add_parser("promote", help="promote an episodic into semantic/procedural")
     pr.add_argument("id", type=int)
     pr.add_argument("--type", dest="mtype", required=True, choices=("semantic", "procedural"))
@@ -108,6 +111,13 @@ def main(argv: list[str] | None = None) -> int:
             print("nothing to consolidate")
         for row in rows:
             print(f"#{row['id']} {row['created_at']} {row['content']}")
+    elif args.command == "decay":
+        rows = store.decay(conn, dry_run=args.dry_run)
+        verb = "would decay" if args.dry_run else "decayed"
+        if not rows:
+            print("nothing to decay")
+        for row in rows:
+            print(f"{verb} #{row['id']} {row['created_at']} {row['content']}")
     elif args.command == "promote":
         new_id = store.promote(conn, args.id, args.mtype, content=args.content)
         print(f"promoted #{args.id} -> #{new_id} ({args.mtype})")
