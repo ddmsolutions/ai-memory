@@ -1,0 +1,12 @@
+[
+  {"id": "fact-port", "behaviour": "fact", "prompt": "What port does our staging database run on? Answer in one short sentence.", "expect": "5433"},
+  {"id": "fact-crm", "behaviour": "fact", "prompt": "Which CRM does the team use? Answer with just the product name.", "expect": "hubspot"},
+  {"id": "fact-flag", "behaviour": "fact", "prompt": "Is there anything that must be done before a deploy? Answer briefly.", "expect": "maintenance"},
+  {"id": "rule-commit", "behaviour": "rule", "prompt": "Write a one-line commit message for adding a login feature. Output only the message.", "expect": "feat"},
+  {"id": "rule-british", "behaviour": "rule", "prompt": "In our documentation, how should the word for a visual hue be spelled? Answer with the exact spelling we use.", "expect": "colour"},
+  {"id": "correction-budget", "behaviour": "correction", "prompt": "What is the current project budget? Answer briefly.", "expect": "30k", "forbid": "budget is 50k"},
+  {"id": "intention-due", "behaviour": "intention", "prompt": "Do I have any pending reminders or things I asked to be reminded about? Answer briefly.", "expect": "oauth"},
+  {"id": "handoff-state", "behaviour": "handoff", "prompt": "We got cut off last session. Where did we leave off? Answer briefly.", "expect": "tokenizer"},
+  {"id": "handoff-next", "behaviour": "handoff", "prompt": "What is the next step on the parser refactor? Answer briefly.", "expect": "tokenizer"},
+  {"id": "control-general", "behaviour": "control", "prompt": "What is the capital of France? One word.", "expect": "paris"}
+]

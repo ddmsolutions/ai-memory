@@ -149,4 +149,7 @@ The behavioural model of ai-memory. Every use case decomposes into numbered requ
 - **UC-34 Judge recall usefulness** - LIVE (2026-08-25). Traces per injection; `feedback` judges; rejection penalises confidence and links; `v_recall_precision` measures. FR-M4, NFR-11.
 - **UC-35 Hand off state of play** - LIVE (2026-08-25). ```handoff block or CLI; injected once next session, then discarded; TTL purge. FR-W1..W3.
 
+- **UC-37 Prove the memory's value** - LIVE (2026-08-26). `bench/run.py`: A/B probe battery, seeded vs empty store, identical hooks; per-behaviour deltas + token overhead. FR-M5.
+- **UC-38 Weekly scorecard** - LIVE (2026-08-26). `scorecard --days 7`: the five-minute longitudinal ritual behind the exit condition. FR-M6.
+
 Later (design sketch in `roadmap.md`): UC-36 team tier (multi-user PostgreSQL).

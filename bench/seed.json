@@ -1,0 +1,24 @@
+{
+  "format": "ai-memory-export",
+  "schema_version": 10,
+  "memories": [
+    {"id": 1, "type": "semantic", "scope": "global", "content": "The staging database is Postgres 16 on port 5433", "origin_session": null, "promoted_from": null, "confidence": 0.9, "pinned": 0, "consolidated": 0, "superseded_by": null, "recall_count": 0, "last_recalled_at": null, "created_at": "2026-08-01 09:00:00", "valence": null, "verify_by": null},
+    {"id": 2, "type": "semantic", "scope": "global", "content": "The team CRM is HubSpot", "origin_session": null, "promoted_from": null, "confidence": 0.9, "pinned": 0, "consolidated": 0, "superseded_by": null, "recall_count": 0, "last_recalled_at": null, "created_at": "2026-08-01 09:00:00", "valence": null, "verify_by": null},
+    {"id": 3, "type": "procedural", "scope": "global", "content": "Always prefix commit messages with a type token such as feat: or fix:", "origin_session": null, "promoted_from": null, "confidence": 0.9, "pinned": 1, "consolidated": 0, "superseded_by": null, "recall_count": 0, "last_recalled_at": null, "created_at": "2026-08-01 09:00:00", "valence": null, "verify_by": null},
+    {"id": 4, "type": "procedural", "scope": "global", "content": "Documentation always uses British English spellings, for example colour and organisation", "origin_session": null, "promoted_from": null, "confidence": 0.9, "pinned": 1, "consolidated": 0, "superseded_by": null, "recall_count": 0, "last_recalled_at": null, "created_at": "2026-08-01 09:00:00", "valence": null, "verify_by": null},
+    {"id": 5, "type": "semantic", "scope": "global", "content": "The project budget is 50k", "origin_session": null, "promoted_from": null, "confidence": 0.8, "pinned": 0, "consolidated": 0, "superseded_by": 6, "recall_count": 0, "last_recalled_at": null, "created_at": "2026-08-01 09:00:00", "valence": null, "verify_by": null},
+    {"id": 6, "type": "semantic", "scope": "global", "content": "The project budget is 30k, corrected down from the earlier 50k figure", "origin_session": null, "promoted_from": null, "confidence": 0.9, "pinned": 0, "consolidated": 0, "superseded_by": null, "recall_count": 0, "last_recalled_at": null, "created_at": "2026-08-10 09:00:00", "valence": null, "verify_by": null},
+    {"id": 7, "type": "semantic", "scope": "global", "content": "Every deploy requires the maintenance flag to be set first", "origin_session": null, "promoted_from": null, "confidence": 0.9, "pinned": 0, "consolidated": 0, "superseded_by": null, "recall_count": 0, "last_recalled_at": null, "created_at": "2026-08-01 09:00:00", "valence": null, "verify_by": null}
+  ],
+  "entities": [],
+  "edges": [],
+  "memory_entities": [],
+  "memory_links": [],
+  "intentions": [
+    {"id": 1, "content": "Rotate the OAuth token for the staging environment", "trigger_kind": "time", "trigger_value": "2020-01-01", "scope": "global", "status": "pending", "origin_session": null, "created_at": "2026-08-01 09:00:00", "resolved_at": null}
+  ],
+  "memory_embeddings": [],
+  "handoffs": [
+    {"id": 1, "content": "Parser refactor parked at step 2 of 5; tests 3 and 7 failing; next step is the tokenizer edge case", "scope": "global", "origin_session": "prev", "created_at": "2026-08-20 09:00:00", "consumed_at": null, "consumed_by": null}
+  ]
+}

@@ -72,6 +72,10 @@ python -m ai_memory status
 
 v0.4: five memory types plus handoffs, four hooks (session-start recall, turn-time recall, capture, subagent spawn injection), secret redaction and instruction quarantine, associative links, eval harness and utility feedback, export/import. See `CHANGELOG.md`; remaining backlog in `docs/roadmap.md`.
 
+## Does it actually help?
+
+Measure, don't assume: `python bench/run.py` runs an A/B probe battery (seeded store vs empty store, identical hooks) and reports per-behaviour accuracy deltas and token overhead; `python -m ai_memory scorecard` is the weekly longitudinal check. The project's own rule: if the evidence says the memory is not changing behaviour, delete it.
+
 ## License
 
 MIT

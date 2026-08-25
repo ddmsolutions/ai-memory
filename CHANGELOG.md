@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.5.0 - 2026-08-26
+
+The proof release: measure whether Claude Code is actually better with this memory.
+
+### Added
+- A/B benchmark (`bench/`): behaviour-tagged probe battery (facts, rules, corrections, intentions, handoffs, controls) run headless against a seeded and an empty store under identical hooks; per-probe fresh store copies; per-behaviour accuracy deltas + token overhead; CI-testable via injectable runner (#37)
+- `scorecard [--days]`: read-only weekly dogfood aggregate - injections, trace precision per surface, growth, backlog, quarantine, open handoffs, due intentions (#38)
+
+### Fixed
+- Export now carries handoffs (open handoffs previously lost on machine migration); deliberate exclusions (injection_log, recall_trace) documented (#39)
+
 ## v0.4.0 - 2026-08-25
 
 The learning release: recall that measures itself, and memory that crosses session boundaries cleanly.

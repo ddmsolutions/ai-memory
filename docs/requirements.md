@@ -98,6 +98,9 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 - **FR-M3** A linter MUST report contradictions, near-duplicates, orphaned lineage, stale unverified facts, and rules whose evidence decayed (applying a confidence penalty).
 - **FR-M4** (shipped 2026-08-25) A `recall_trace` log MUST record candidate sets and injections (ids and scores only, never content) for session-ful recalls; `feedback` backfills correctness, and rejections apply confidence and link-weight penalties, not merely absent reinforcement.
 
+- **FR-M5** (shipped 2026-08-26) An A/B benchmark MUST run a behaviour-tagged probe battery under identical hooks against a seeded store and an empty store, with per-probe fresh store copies (consume-once isolation), control probes validating the harness, and a report of per-behaviour accuracy, delta, and token overhead. The user's live store is never touched.
+- **FR-M6** (shipped 2026-08-26) A read-only `scorecard` MUST aggregate the dogfooding window: injections, traces logged/judged, precision per surface, new memories, backlog, quarantine, open handoffs, due intentions.
+
 ### Handoff memory (FR-W, shipped 2026-08-25)
 
 - **FR-W1** A handoff MUST be writable by fenced ```handoff transcript block or CLI, through the same redaction and instruction-screen funnel as every injectable surface.
@@ -153,6 +156,8 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 | (release) | changelog, tag | docs | v0.2 S9 | LIVE |
 | UC-34 Utility feedback | FR-M4, NFR-11 | store.py (trace/feedback), CLI | backlog #34 | LIVE |
 | UC-35 Handoff memory | FR-W1..W3, NFR-1 | store.py, hooks/capture.py, CLI | backlog #35 | LIVE |
+| UC-37 A/B benchmark | FR-M5, NFR-11 | bench/ | v0.5 #37 | LIVE |
+| UC-38 Weekly scorecard | FR-M6, NFR-11 | store.py, CLI | v0.5 #38 | LIVE |
 
 Cross-cutting NFRs (1, 3, 6, 7, 9, 10) apply to every section and are re-checked at each section's Definition of Done.
 
