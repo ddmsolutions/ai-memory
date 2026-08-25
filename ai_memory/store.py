@@ -332,6 +332,61 @@ def decay(conn: sqlite3.Connection, cfg: dict | None = None, dry_run: bool = Fal
     return rows
 
 
+def why(conn: sqlite3.Connection, memory_id: int) -> str:
+    """FR-M1: a memory's full story - origin, promotion lineage, corrections,
+    usage, mentions - rendered as markdown from the lineage columns."""
+    row = conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
+    if row is None:
+        return f"No memory with id {memory_id}."
+    lines = [f"**#{row['id']}** [{row['type']}/{row['scope']}] {row['content']}"]
+    facts = [f"recorded {row['created_at']}", f"confidence {row['confidence']:.2f}"]
+    if row["pinned"]:
+        facts.append("pinned")
+    if row["valence"]:
+        facts.append(f"valence {row['valence']}")
+    if row["verify_by"]:
+        facts.append(f"verify by {row['verify_by']}")
+    lines.append("- " + ", ".join(facts))
+    if row["origin_session"]:
+        lines.append(f"- captured from session {row['origin_session']}")
+    ancestor = row
+    depth = 0
+    while ancestor["promoted_from"] is not None and depth < 20:
+        ancestor = conn.execute(
+            "SELECT * FROM memories WHERE id = ?", (ancestor["promoted_from"],)
+        ).fetchone()
+        if ancestor is None:
+            lines.append("- promoted from a memory that has since been deleted")
+            break
+        depth += 1
+        lines.append(f"- distilled from #{ancestor['id']} ({ancestor['created_at'][:10]}): {ancestor['content']}")
+    for child in conn.execute(
+        "SELECT id, type, content FROM memories WHERE promoted_from = ?", (memory_id,)
+    ):
+        lines.append(f"- promoted into #{child['id']} [{child['type']}]: {child['content']}")
+    for old in conn.execute(
+        "SELECT id, content FROM memories WHERE superseded_by = ?", (memory_id,)
+    ):
+        lines.append(f"- corrects #{old['id']}: {old['content']}")
+    if row["superseded_by"] is not None:
+        new = conn.execute(
+            "SELECT id, content FROM memories WHERE id = ?", (row["superseded_by"],)
+        ).fetchone()
+        if new:
+            lines.append(f"- SUPERSEDED by #{new['id']}: {new['content']}")
+    mentions = conn.execute(
+        "SELECT e.name, e.etype FROM memory_entities me JOIN entities e ON e.id = me.entity_id"
+        " WHERE me.memory_id = ?", (memory_id,),
+    ).fetchall()
+    if mentions:
+        lines.append("- mentions: " + ", ".join(f"{m['name']} ({m['etype']})" for m in mentions))
+    lines.append(
+        f"- recalled {row['recall_count']} time(s)"
+        + (f", last {row['last_recalled_at']}" if row["last_recalled_at"] else ", never")
+    )
+    return "\n".join(lines)
+
+
 def status(conn: sqlite3.Connection) -> dict:
     counts = dict(
         conn.execute("SELECT type, COUNT(*) FROM memories GROUP BY type").fetchall()

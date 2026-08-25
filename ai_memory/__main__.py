@@ -84,6 +84,9 @@ def build_parser() -> argparse.ArgumentParser:
     eab = esub.add_parser("about", help="everything we know about an entity")
     eab.add_argument("name")
 
+    w = sub.add_parser("why", help="explain a memory: origin, lineage, corrections, usage")
+    w.add_argument("id", type=int)
+
     pg = sub.add_parser("purge", help="erase everything about an entity or session (hard delete)")
     pg.add_argument("--entity")
     pg.add_argument("--session")
@@ -165,6 +168,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"nothing recorded about {args.name}")
             for row in rows:
                 print(f"#{row['id']} [{row['type']}] {row['content']}")
+    elif args.command == "why":
+        print(store.why(conn, args.id))
     elif args.command == "purge":
         try:
             report = graph.purge_subject(

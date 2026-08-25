@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `why <id>`: a memory's full story - origin session, promotion lineage both directions, correction chain, valence, mentions, usage (#28)
+
 - Mentions bridge (schema v4): `memory_entities` join table, `entity mention` / `entity about` CLI, `v_entity_memories` view (#25)
 - Purge by subject: `purge --entity X | --session Y --yes` erases memories, mentions, edges and the entity; secure_delete + VACUUM guarantee no residual bytes (#26)
 
