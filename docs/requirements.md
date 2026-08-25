@@ -23,6 +23,7 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 - **FR-C5** (v0.2) A SubagentStop hook MUST capture memos from subagent transcripts under the same dedup and fail-soft rules as FR-C1..C3.
 - **FR-C6** (v0.2) Credential-shaped content (configurable pattern set covering at minimum: common API-key prefixes, bearer tokens, PEM blocks, high-entropy strings over a threshold) MUST be redacted with a visible placeholder before any insert, in every capture path.
 - **FR-C7** (v0.2) Each redaction pattern MUST have its own test proving the secret never reaches the database file.
+- **FR-C8** (v0.3 draft) Instruction-shaped memo content (imperatives aimed at the model, "ignore previous" patterns) MUST be flagged or refused at capture, closing the poisoned-memo persistent-injection path.
 
 ### Recall (FR-R)
 
@@ -64,6 +65,47 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 - **FR-O4** (v0.2) The store MUST carry a schema version (`PRAGMA user_version`); on connect, pending ordered migrations run inside a transaction and stamp the new version; a failed migration rolls back completely.
 - **FR-O5** (v0.2) Hooks encountering a migration failure MUST fail soft (no injection, exit 0); the CLI MUST fail loud with the migration error.
 
+### Prospective memory (FR-P, v0.3 draft)
+
+- **FR-P1** A fifth type `prospective` MUST carry a trigger condition (a time, or a context pattern) and a lifecycle: pending, fired, done or expired.
+- **FR-P2** Pending intentions MUST surface in the recall pack; context-triggered intentions MUST fire via turn-time recall when their pattern matches.
+- **FR-P3** A completed or expired intention MUST leave all future packs.
+
+### Aging and valence (FR-A, v0.3 draft)
+
+- **FR-A1** Episodic rows MAY carry an outcome valence (success, failure, neutral), settable in the memo syntax and via CLI.
+- **FR-A2** Semantic rows MAY carry a `verify_by` date; any recall surface MUST mark rows past it as "verify before relying".
+- **FR-A3** The consolidation listing MUST surface valence so failures can be weighted into procedural rules.
+
+### Associative links (FR-L, v0.3 draft)
+
+- **FR-L1** A `memory_links (src_memory, dst_memory, rel)` join table MUST hold typed links: derives_from, supports, contradicts, follows, co_session.
+- **FR-L2** `co_session` links MUST be derived automatically from co-capture; no manual effort.
+- **FR-L3** Link weights MUST reinforce on co-retrieval and decay when unreinforced, with a prune floor, so activation discriminates.
+- **FR-L4** Associative retrieval MUST return a ranked candidate set, never a silent top-1; candidates within a configured margin are flagged ambiguous for the model to resolve.
+- **FR-L5** A hub-detection view MUST flag nodes whose degree distorts activation.
+
+### Entity mentions (FR-N, v0.3 draft)
+
+- **FR-N1** A `memory_entities (memory_id, entity_id)` join table MUST bridge memories and the graph.
+- **FR-N2** Purge-by-subject MUST delete, in one confirmed command, every memory, mention, and edge for a named entity or session, reporting what went.
+- **FR-N3** Graph-aware recall MUST be able to pull the entity neighbourhood relevant to the task into the pack, budget-capped.
+
+### Measurement and explainability (FR-M, v0.3 draft; FR-M4 Later)
+
+- **FR-M1** `why <id>` MUST show a memory's full story: capture origin, promotion lineage, supersession chain, recall stats, links.
+- **FR-M2** An eval harness MUST run a labelled question set against recall and store a per-run precision report; quality is measured, not vibes.
+- **FR-M3** A linter MUST report contradictions, near-duplicates, orphaned lineage, stale unverified facts, and rules whose evidence decayed (applying a confidence penalty).
+- **FR-M4** (Later) A `recall_trace` log MUST record candidate sets, choices, and backfilled correctness; rejections apply a link-weight penalty, not merely absent reinforcement.
+
+### Portability, routing, search (FR-X / FR-D / FR-V, v0.3 draft)
+
+- **FR-X1** `export` MUST emit the full store as JSON; **FR-X2** `import` MUST ingest it with dedup; a round trip is lossless.
+- **FR-X3** An onboarding importer SHOULD seed a store from an existing CLAUDE.md or notes file.
+- **FR-D1** A description-routed skill MUST let the model save and consult memory proactively, not only via /memory.
+- **FR-D2** Subagent spawn MUST be able to inject a scoped recall pack into the spawned agent's context.
+- **FR-V1** An optional embedding layer MAY back `search` (local model, fail-soft, hybrid rank with FTS); absence changes nothing.
+
 ## Non-functional requirements
 
 - **NFR-1 Fail-soft hooks.** No hook may ever block a session: every error path swallows and exits 0. Hard invariant, test-covered per hook.
@@ -76,6 +118,8 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 - **NFR-8 Performance.** Hot paths (capture dedup, entity lookup) are index-backed with `EXPLAIN QUERY PLAN` tests; recall pack compiles in under 100 ms at 10k rows.
 - **NFR-9 Readability of the store.** Memory content is plain text a human can read with any SQLite client; no pickled or encoded blobs.
 - **NFR-10 Test-covered behaviour.** Every FR lands with at least one test; the suite runs green before any merge to main (Definition of Done, `plan.md`).
+- **NFR-11 Measured tuning.** Once the eval harness exists, no change to a ranking, decay, or threshold tunable ships without a precision run showing no degradation.
+- **NFR-12 Candidate sets over silent picks.** Wherever retrieval is ambiguous, the system surfaces ranked alternatives for the model to resolve; it never silently collapses to top-1.
 
 ## Traceability matrix
 

@@ -128,6 +128,22 @@ The behavioural model of ai-memory. Every use case decomposes into numbered requ
 - **Errors:** a failed migration leaves the store untouched (transactional) and reports; hooks fail soft, CLI fails loud.
 - **Requirements:** FR-O4, FR-O5, NFR-5.
 
-## v0.3 use cases (outline only, specified when the phase is cut)
+## v0.3 use cases (outline; flows specified when each is picked up)
 
-Prospective intentions (create, trigger, complete), export/import round-trip, associative links between memories (`memory_links`), entity mentions (`memory_entities`) with purge-by-subject, `why <id>` lineage explanation, contradiction detection at consolidation, proactive skill routing, embedding-backed search. See `roadmap.md`.
+- **UC-19 Set and trigger an intention** - PLANNED-0.3. Create a prospective memory with a time or context trigger; it surfaces until done or expired. FR-P1..P3.
+- **UC-20 Record outcome valence** - PLANNED-0.3. Mark an episode success or failure; consolidation weights failures into rules. FR-A1, FR-A3.
+- **UC-21 Flag a stale fact** - PLANNED-0.3. A semantic row past `verify_by` recalls with a verify warning. FR-A2.
+- **UC-22 Screen instruction-shaped memos** - PLANNED-0.3. Capture flags or refuses content that reads as instructions to the model. FR-C8.
+- **UC-23 Chain memories associatively** - PLANNED-0.3. Typed weighted links (curated + auto co_session), Hebbian reinforce/decay, candidate-set retrieval. FR-L1..L5, NFR-12.
+- **UC-24 Bridge memories to entities** - PLANNED-0.3. Mentions join makes "everything about X" one query. FR-N1.
+- **UC-25 Purge a subject** - PLANNED-0.3. One confirmed command erases an entity or session everywhere. FR-N2.
+- **UC-26 Graph-aware recall** - PLANNED-0.3. The task's entity neighbourhood joins the pack, budget-capped. FR-N3.
+- **UC-27 Explain a memory** - PLANNED-0.3. `why <id>` tells the row's full story. FR-M1.
+- **UC-28 Measure recall quality** - PLANNED-0.3. Labelled eval set, precision per run. FR-M2, NFR-11.
+- **UC-29 Lint the store** - PLANNED-0.3. One health pass; dead evidence takes a confidence penalty. FR-M3.
+- **UC-30 Export / import** - PLANNED-0.3. Lossless JSON round trip with dedup. FR-X1, FR-X2.
+- **UC-31 Proactive skill routing** - PLANNED-0.3. The model saves and consults memory without being told. FR-D1.
+- **UC-32 Subagent spawn injection** - PLANNED-0.3. A spawned agent starts with a scoped pack. FR-D2.
+- **UC-33 Embedding-backed search** - PLANNED-0.3. Optional, local, fail-soft, hybrid with FTS. FR-V1.
+
+Later (design sketches in `roadmap.md`): UC-34 recall utility feedback (FR-M4), UC-35 handoff memory, UC-36 team tier (multi-user PostgreSQL).
