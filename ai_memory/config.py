@@ -7,6 +7,7 @@ every key falls back to its default independently (FR-O2, FR-O3).
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 
@@ -15,6 +16,7 @@ DEFAULTS: dict = {
     "recency_half_life_days": 30.0,  # eviction score recency decay
     "usage_saturation": 3.0,       # eviction score hit-count saturation constant
     "turn_recall_cap": 3,          # max rows injected per user prompt
+    "turn_recall_min_score": 0.0,  # bm25 relevance floor; 0 = off (tune via eval harness)
     "decay_window_days": 30,       # episodics older than this may decay
     "reinforce_step": 0.05,        # confidence bump per recall, capped at 1.0
     "scope_map": {},               # {"<absolute path prefix>": "<scope slug>"}
@@ -33,7 +35,14 @@ def _compatible(value, default) -> bool:
     if isinstance(default, bool):
         return isinstance(value, bool)
     if isinstance(default, (int, float)):
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
+        # Finite and non-negative: NaN/Infinity would break SQL interpolation,
+        # and a negative reinforce_step would erode confidence on every recall.
+        return (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            and value >= 0
+        )
     return isinstance(value, type(default))
 
 

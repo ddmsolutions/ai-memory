@@ -48,10 +48,13 @@ All tunables live in `~/.ai-memory/config.json` (override the path with `AI_MEMO
 | `recency_half_life_days` | 30.0 | Eviction score recency decay |
 | `usage_saturation` | 3.0 | Eviction score hit-count saturation |
 | `turn_recall_cap` | 3 | Max rows injected per user prompt |
+| `turn_recall_min_score` | 0.0 | bm25 relevance floor for turn recall; 0 = off |
 | `decay_window_days` | 30 | Episodics older than this may decay |
 | `reinforce_step` | 0.05 | Confidence bump per recall (cap 1.0) |
 | `scope_map` | `{}` | Absolute path prefix to scope slug |
 | `secret_patterns` | `[]` | Extra redaction patterns `{label, regex}` |
+
+Note on the hook commands: they invoke `python`. On systems where only `python3` exists on PATH (stock macOS, many Linux distributions), edit the commands in `hooks/hooks.json` (or your settings.json wiring) accordingly; a missing interpreter fails soft but the plugin is silently inactive.
 
 ## 4. Teach the session to write memos
 

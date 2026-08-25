@@ -12,8 +12,17 @@ MEMORY_TYPES = ("episodic", "semantic", "procedural")
 
 def _fts_query(text: str) -> str:
     """Turn free text into a safe FTS5 OR-query of quoted terms."""
-    terms = [t.strip('"') for t in text.split() if t.strip('"')]
+    terms = [t.replace('"', '""') for t in text.split() if t.strip('"')]
     return " OR ".join(f'"{t}"' for t in terms) or '""'
+
+
+_STOPWORDS = frozenset(
+    "the a an and or but is are was were be been being to of in on at for with by from as it its "
+    "this that these those i you we they he she them us me my your our their do does did done "
+    "what which who whom how when where why not no yes so if then than there here just can could "
+    "should would will shall may might must have has had having about into over under again very "
+    "please want need make made get got let new way best good".split()
+)
 
 
 def remember(
@@ -29,6 +38,11 @@ def remember(
 ) -> int:
     if mtype not in MEMORY_TYPES:
         raise ValueError(f"type must be one of {MEMORY_TYPES}")
+    # FR-C6: store.remember is the single insert funnel, so redaction here
+    # covers every capture path (hooks, CLI, callers).
+    from . import redact as _redact
+
+    content = _redact.redact(content, config.load().get("secret_patterns"))[0]
     cur = conn.execute(
         "INSERT INTO memories (type, scope, content, origin_session, promoted_from,"
         " confidence, pinned) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -128,18 +142,26 @@ def recall_pack(
         cfg = config.load()
     if limit is None:
         limit = int(cfg["pack_limit"])
-    seen: set[int] = set(_injected_ids(conn, session_id)) if session_id else set()
-    already_injected = set(seen)
+    already_injected = _injected_ids(conn, session_id) if session_id else set()
+    picked: set[int] = set()
+    remaining = limit
     sections: list[tuple[str, list[sqlite3.Row]]] = []
 
-    def take(rows: Iterable[sqlite3.Row], n: int) -> list[sqlite3.Row]:
-        out = []
+    def take(rows: Iterable[sqlite3.Row], n: int, allow_injected: bool = False) -> list[sqlite3.Row]:
+        # NFR-4: `limit` is the TOTAL pack budget, decremented across sections.
+        # Pinned rows lead every pack (FR-K5), even on a resumed session.
+        nonlocal remaining
+        out: list[sqlite3.Row] = []
         for r in rows:
-            if r["id"] not in seen:
-                seen.add(r["id"])
-                out.append(r)
-            if len(out) >= n:
+            if remaining <= 0 or len(out) >= n:
                 break
+            if r["id"] in picked:
+                continue
+            if not allow_injected and r["id"] in already_injected:
+                continue
+            picked.add(r["id"])
+            out.append(r)
+            remaining -= 1
         return out
 
     base = "scope IN (?, 'global')"
@@ -159,14 +181,14 @@ def recall_pack(
         (scope,),
     ).fetchall()
 
-    sections.append(("Pinned", take(pinned, limit)))
+    sections.append(("Pinned", take(pinned, limit, allow_injected=True)))
     sections.append(("How to work (procedural)", take(procedural, max(3, limit // 3))))
     sections.append(("Known facts (semantic)", take(semantic, max(3, limit // 3))))
     if task:
         matches = search(conn, task, scope=scope, limit=limit)
         sections.append((f"Relevant to: {task}", take(matches, max(3, limit // 3))))
 
-    recalled = [i for i in seen if i not in already_injected]
+    recalled = [i for i in picked if i not in already_injected]
     if recalled:
         _bump_recall(conn, recalled, step=float(cfg["reinforce_step"]))
         _record_injection(conn, session_id, recalled)
@@ -195,8 +217,19 @@ def turn_recall(
     cap = int(cfg["turn_recall_cap"])
     if not prompt or not prompt.strip() or cap <= 0:
         return ""
-    query = " ".join(prompt.split()[:32])
-    rows = search(conn, query, scope=scope, limit=cap * 4)
+    # Stopwords out: without this, "the" matches nearly every memory, and the
+    # reinforcement loop then exempts everything from decay (review finding).
+    terms = [
+        w for w in prompt.split()[:64]
+        if w.lower().strip(".,?!:;'\"()") not in _STOPWORDS
+    ][:32]
+    if not terms:
+        return ""
+    rows = search(conn, " ".join(terms), scope=scope, limit=cap * 4)
+    # FR-R6: configurable relevance threshold on the bm25 score (higher = stricter).
+    min_score = float(cfg["turn_recall_min_score"])
+    if min_score > 0:
+        rows = [r for r in rows if -r["rank"] >= min_score]
     if session_id:
         injected = _injected_ids(conn, session_id)
         rows = [r for r in rows if r["id"] not in injected]
@@ -262,13 +295,20 @@ def decay(conn: sqlite3.Connection, cfg: dict | None = None, dry_run: bool = Fal
     rows = conn.execute(
         "SELECT * FROM memories WHERE type = 'episodic' AND consolidated = 0"
         " AND recall_count = 0 AND pinned = 0 AND created_at < datetime('now', ?)"
+        # Never delete a row that supersedes another: ON DELETE SET NULL would
+        # resurrect the corrected fact as current truth (review blocker #1).
+        " AND id NOT IN (SELECT superseded_by FROM memories WHERE superseded_by IS NOT NULL)"
         " ORDER BY created_at",
         (f"-{window} days",),
     ).fetchall()
-    if rows and not dry_run:
-        ids = [r["id"] for r in rows]
-        qmarks = ",".join("?" * len(ids))
-        conn.execute(f"DELETE FROM memories WHERE id IN ({qmarks})", ids)
+    if not dry_run:
+        if rows:
+            ids = [r["id"] for r in rows]
+            qmarks = ",".join("?" * len(ids))
+            conn.execute(f"DELETE FROM memories WHERE id IN ({qmarks})", ids)
+        conn.execute(
+            "DELETE FROM injection_log WHERE injected_at < datetime('now', '-14 days')"
+        )
         conn.commit()
     return rows
 

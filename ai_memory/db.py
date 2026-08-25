@@ -101,13 +101,13 @@ MIGRATIONS: dict[int, list[str]] = {
     2: [
         # Session-level injection dedup: a row injected once (pack or turn)
         # is not injected again that session (FR-R5).
-        """CREATE TABLE injection_log (
+        """CREATE TABLE IF NOT EXISTS injection_log (
              session_id  TEXT NOT NULL,
              memory_id   INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
              injected_at TEXT NOT NULL DEFAULT (datetime('now')),
              PRIMARY KEY (session_id, memory_id)
            )""",
-        "CREATE INDEX ix_injection_session ON injection_log(session_id)",
+        "CREATE INDEX IF NOT EXISTS ix_injection_session ON injection_log(session_id)",
     ],
 }
 
@@ -131,6 +131,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
             # Explicit BEGIN: python sqlite3's implicit transaction excludes
             # DDL, which would half-apply a failed migration.
             conn.execute("BEGIN IMMEDIATE")
+            # Re-read under the write lock: a concurrent connection (Stop and
+            # SubagentStop firing together) may have already migrated.
+            current = conn.execute("PRAGMA user_version").fetchone()[0]
+            if current >= target:
+                conn.rollback()
+                version = current
+                continue
             for statement in MIGRATIONS[target]:
                 conn.execute(statement)
             conn.execute(f"PRAGMA user_version = {int(target)}")

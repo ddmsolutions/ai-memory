@@ -22,7 +22,7 @@ BUILTIN_PATTERNS: list[tuple[str, re.Pattern]] = [
 ]
 
 _ENTROPY_CANDIDATE = re.compile(r"\b[A-Za-z0-9+/=_\-]{32,}\b")
-_ENTROPY_THRESHOLD = 4.2
+_HEX_CHARS = set("0123456789abcdef")
 
 
 def _shannon(token: str) -> float:
@@ -31,6 +31,15 @@ def _shannon(token: str) -> float:
         counts[ch] = counts.get(ch, 0) + 1
     n = len(token)
     return -sum((c / n) * math.log2(c / n) for c in counts.values())
+
+
+def _entropy_threshold(token: str) -> float:
+    """Hex secrets max out at log2(16)=4.0, so a flat 4.2 threshold could never
+    catch them. Hex-only tokens get a lower bar, but only at length 48+ so
+    40-char git SHAs in memos survive."""
+    if set(token.lower()) <= _HEX_CHARS:
+        return 3.4 if len(token) >= 48 else float("inf")
+    return 4.2
 
 
 def _compile_extra(extra: list | None) -> list[tuple[str, re.Pattern]]:
@@ -53,7 +62,7 @@ def redact(text: str, extra_patterns: list | None = None) -> tuple[str, int]:
     def _entropy_sub(match: re.Match) -> str:
         nonlocal count
         token = match.group(0)
-        if _shannon(token) > _ENTROPY_THRESHOLD:
+        if _shannon(token) > _entropy_threshold(token):
             count += 1
             return "[REDACTED:high-entropy]"
         return token
