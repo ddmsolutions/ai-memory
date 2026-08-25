@@ -4,7 +4,7 @@ Project-specific rules for coding agents working in this repo. Extends the owner
 
 ## What this is
 
-A Claude Code plugin providing persistent memory in four stores: episodic, semantic, procedural, and entity (knowledge graph). Local-first, one SQLite file, stdlib only. See `README.md` and `docs/architecture.md` before changing anything.
+A Claude Code plugin providing persistent memory in four stores: episodic, semantic, procedural, and entity (knowledge graph). Local-first, one SQLite file, stdlib only. See `README.md` and `docs/architecture.md` before changing anything; the working plan and build order live in `docs/plan.md` - work its sections in sequence and mark them complete as you go.
 
 ## Stack
 

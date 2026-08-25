@@ -9,14 +9,16 @@
 
 ## v0.2
 
-- Scoped memory: per-project stores selected automatically from the working directory; per-agent scopes injected at subagent spawn
-- Decay pass: age out unpromoted episodics on a schedule; confidence reinforcement on repeated recall
-- Automatic entity extraction during consolidation (model-driven, engine-verified upserts)
+Build order and section detail: `docs/plan.md`.
+
 - SubagentStop capture so background agents' memos are not lost
+- Scoped memory: project scope resolved automatically from the working directory (per-agent scoping deferred)
+- Decay pass: age out unpromoted, unrecalled episodics; confidence reinforcement on repeated recall
 - `export` / `import` for moving a store between machines
 
 ## v0.3
 
+- Automatic entity extraction during consolidation (model-driven, engine-verified upserts; pulled from v0.2 pending dogfooding evidence)
 - Optional embedding layer behind the existing `search` interface (local model first, fail-soft), hybrid rank with FTS
 - Graph queries in recall: pull the entity neighbourhood relevant to the current task into the pack
 - Recall budget control: token-aware pack compilation with per-section caps
