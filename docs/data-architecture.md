@@ -14,6 +14,7 @@ erDiagram
     ENTITIES ||--o{ EDGES : "dst"
     MEMORIES ||--o{ EDGES : "memory_id (evidence)"
     MEMORIES ||--|| MEMORIES_FTS : "id = rowid (trigger-synced index)"
+    MEMORIES ||--o{ INJECTION_LOG : "memory_id (injected this session)"
 
     MEMORIES {
         integer id PK
@@ -51,6 +52,12 @@ erDiagram
 
     MEMORIES_FTS {
         text content "FTS5, external content table"
+    }
+
+    INJECTION_LOG {
+        text session_id PK
+        integer memory_id PK "FK, cascade delete"
+        text injected_at
     }
 ```
 
@@ -115,6 +122,16 @@ stateDiagram-v2
 | weight | REAL | no | 1.0 | Edge strength, orders neighbour listings. |
 | memory_id | INTEGER | yes | NULL | FK to the memory row evidencing this edge. ON DELETE SET NULL. |
 | created_at | TEXT | no | now | ISO UTC. |
+
+### injection_log (schema v2)
+
+| Column | Type | Null | Default | Meaning |
+|--------|------|------|---------|---------|
+| session_id | TEXT | PK | - | Claude Code session id |
+| memory_id | INTEGER | PK | - | FK memories.id, ON DELETE CASCADE |
+| injected_at | TEXT | no | now | When the row was injected |
+
+Session-level injection dedup: a memory injected once in a session (session-start pack or turn-time recall) is never injected again that session (FR-R5). Added by migration 2.
 
 ### memories_fts
 

@@ -92,12 +92,24 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
 # edit that only fresh stores receive.
-MIGRATIONS: dict[int, list[str]] = {}
+MIGRATIONS: dict[int, list[str]] = {
+    2: [
+        # Session-level injection dedup: a row injected once (pack or turn)
+        # is not injected again that session (FR-R5).
+        """CREATE TABLE injection_log (
+             session_id  TEXT NOT NULL,
+             memory_id   INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+             injected_at TEXT NOT NULL DEFAULT (datetime('now')),
+             PRIMARY KEY (session_id, memory_id)
+           )""",
+        "CREATE INDEX ix_injection_session ON injection_log(session_id)",
+    ],
+}
 
 
 class MigrationError(RuntimeError):

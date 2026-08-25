@@ -1,8 +1,8 @@
-"""SessionStart hook: inject the compiled recall pack as additional context.
+"""UserPromptSubmit hook: turn-time recall (FR-R5/R6).
 
-Reads the hook payload from stdin (unused for now beyond validation) and
-emits the recall pack via hookSpecificOutput.additionalContext.
-Fails soft: any error means no injection, never a blocked session.
+FTS-matches the user's prompt against active memories and injects the top
+config-capped rows not already injected this session. Silent on no match;
+fails soft on everything.
 """
 
 from __future__ import annotations
@@ -15,26 +15,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def main() -> int:
-    session_id = None
     try:
         payload = json.load(sys.stdin)
-        session_id = payload.get("session_id")
     except Exception:
-        pass
+        return 0
+    prompt = payload.get("prompt", "")
+    session_id = payload.get("session_id")
     try:
         from ai_memory import db, store
 
         conn = db.connect()
-        pack = store.recall_pack(conn, session_id=session_id)
+        context = store.turn_recall(conn, prompt, session_id=session_id)
     except Exception:
         return 0
-    if pack:
+    if context:
         print(
             json.dumps(
                 {
                     "hookSpecificOutput": {
-                        "hookEventName": "SessionStart",
-                        "additionalContext": pack,
+                        "hookEventName": "UserPromptSubmit",
+                        "additionalContext": context,
                     }
                 }
             )

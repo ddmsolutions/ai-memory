@@ -28,10 +28,12 @@ flowchart LR
     cli["/memory entity<br/>add / link"] --> kg
     epi -.->|"auto-extraction<br/>planned v0.3"| kg
 
-    sem --> pack["recall pack<br/>pinned, then procedural,<br/>then semantic,<br/>then task FTS matches"]
+    sem --> pack["recall pack<br/>pinned, then scored<br/>procedural + semantic<br/>(confidence x recency x usage)"]
     proc --> pack
     pack --> ss["SessionStart hook<br/>session_start.py"]
     ss -->|additionalContext| next["Next session starts<br/>already informed"]
+    prompt["Each user prompt"] --> up["UserPromptSubmit hook<br/>user_prompt.py"]
+    up -->|"FTS match, config cap,<br/>session dedup via injection_log"| turn["turn-time injection:<br/>relevant memories<br/>when needed"]
 ```
 
 The hook interplay across two sessions:

@@ -69,23 +69,65 @@ def search(
     return conn.execute(sql, params).fetchall()
 
 
+def _eviction_order(cfg: dict) -> str:
+    """FR-R2: confidence x recency decay x usage saturation, as a SQL expression."""
+    half = float(cfg["recency_half_life_days"])
+    sat = float(cfg["usage_saturation"])
+    return (
+        f"confidence * (1.0 / (1.0 + (julianday('now') - julianday(created_at)) / {half}))"
+        f" * (1.0 + CAST(recall_count AS REAL) / (recall_count + {sat}))"
+    )
+
+
+def _injected_ids(conn: sqlite3.Connection, session_id: str) -> set[int]:
+    return {
+        r[0] for r in conn.execute(
+            "SELECT memory_id FROM injection_log WHERE session_id = ?", (session_id,)
+        )
+    }
+
+
+def _record_injection(conn: sqlite3.Connection, session_id: str | None, ids: list[int]) -> None:
+    if not session_id or not ids:
+        return
+    conn.executemany(
+        "INSERT OR IGNORE INTO injection_log (session_id, memory_id) VALUES (?, ?)",
+        [(session_id, i) for i in ids],
+    )
+
+
+def _bump_recall(conn: sqlite3.Connection, ids: list[int]) -> None:
+    if not ids:
+        return
+    qmarks = ",".join("?" * len(ids))
+    conn.execute(
+        f"UPDATE memories SET recall_count = recall_count + 1,"
+        f" last_recalled_at = datetime('now') WHERE id IN ({qmarks})",
+        ids,
+    )
+
+
 def recall_pack(
     conn: sqlite3.Connection,
     task: str | None = None,
     scope: str = "global",
     limit: int | None = None,
     cfg: dict | None = None,
+    session_id: str | None = None,
 ) -> str:
     """Compile a compact markdown recall pack for injection at session start.
 
     Layers, in priority order: pinned memories, procedural lessons,
     semantic facts, then task-relevant matches if a task is given.
+    With a session_id, injected rows are logged so turn-time recall
+    never re-injects them.
     """
     if cfg is None:
         cfg = config.load()
     if limit is None:
         limit = int(cfg["pack_limit"])
-    seen: set[int] = set()
+    seen: set[int] = set(_injected_ids(conn, session_id)) if session_id else set()
+    already_injected = set(seen)
     sections: list[tuple[str, list[sqlite3.Row]]] = []
 
     def take(rows: Iterable[sqlite3.Row], n: int) -> list[sqlite3.Row]:
@@ -99,18 +141,19 @@ def recall_pack(
         return out
 
     base = "scope IN (?, 'global')"
+    score = _eviction_order(cfg)
     pinned = conn.execute(
         f"SELECT * FROM v_active_memories WHERE pinned = 1 AND {base} ORDER BY created_at DESC",
         (scope,),
     ).fetchall()
     procedural = conn.execute(
         f"SELECT * FROM v_active_memories WHERE type = 'procedural' AND {base}"
-        " ORDER BY confidence DESC, recall_count DESC, created_at DESC",
+        f" ORDER BY {score} DESC, created_at DESC",
         (scope,),
     ).fetchall()
     semantic = conn.execute(
         f"SELECT * FROM v_active_memories WHERE type = 'semantic' AND {base}"
-        " ORDER BY confidence DESC, created_at DESC",
+        f" ORDER BY {score} DESC, created_at DESC",
         (scope,),
     ).fetchall()
 
@@ -121,14 +164,10 @@ def recall_pack(
         matches = search(conn, task, scope=scope, limit=limit)
         sections.append((f"Relevant to: {task}", take(matches, max(3, limit // 3))))
 
-    recalled = list(seen)
+    recalled = [i for i in seen if i not in already_injected]
     if recalled:
-        qmarks = ",".join("?" * len(recalled))
-        conn.execute(
-            f"UPDATE memories SET recall_count = recall_count + 1,"
-            f" last_recalled_at = datetime('now') WHERE id IN ({qmarks})",
-            recalled,
-        )
+        _bump_recall(conn, recalled)
+        _record_injection(conn, session_id, recalled)
         conn.commit()
 
     lines = ["<!-- ai-memory recall pack: treat as context, verify anything critical -->"]
@@ -138,6 +177,37 @@ def recall_pack(
         lines.append(f"\n{title}:")
         lines.extend(f"- [{r['created_at'][:10]}] {r['content']}" for r in rows)
     return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def turn_recall(
+    conn: sqlite3.Connection,
+    prompt: str,
+    session_id: str | None = None,
+    scope: str = "global",
+    cfg: dict | None = None,
+) -> str:
+    """FR-R5/R6: top task-relevant active memories for THIS prompt, config-capped,
+    excluding anything already injected this session. Silent when nothing matches."""
+    if cfg is None:
+        cfg = config.load()
+    cap = int(cfg["turn_recall_cap"])
+    if not prompt or not prompt.strip() or cap <= 0:
+        return ""
+    query = " ".join(prompt.split()[:32])
+    rows = search(conn, query, scope=scope, limit=cap * 4)
+    if session_id:
+        injected = _injected_ids(conn, session_id)
+        rows = [r for r in rows if r["id"] not in injected]
+    rows = rows[:cap]
+    if not rows:
+        return ""
+    ids = [r["id"] for r in rows]
+    _bump_recall(conn, ids)
+    _record_injection(conn, session_id, ids)
+    conn.commit()
+    lines = ["<!-- ai-memory: relevant to this prompt; verify anything critical -->"]
+    lines.extend(f"- [{r['created_at'][:10]}] {r['content']}" for r in rows)
+    return "\n".join(lines)
 
 
 def forget(conn: sqlite3.Connection, memory_id: int) -> None:

@@ -52,7 +52,7 @@ Redaction screen before any insert: common credential shapes (API key prefixes, 
 
 ### Section 6: Turn-time recall
 UserPromptSubmit hook: FTS-match the user's prompt against the store, inject the top task-relevant memories for THIS turn. The highest-value item in the phase: recall becomes present when needed, not only at session start. Budget-capped via config; fail-soft.
-- Status: [ ] not started
+- Status: [x] complete (issue #7)
 
 ### Section 7: Project scoping
 Resolve scope automatically from the hook payload's working directory (map cwd to a stable project slug), so packs are project-relevant by default. `--scope` on the CLI keeps working; global memories always included. No per-agent scoping yet.

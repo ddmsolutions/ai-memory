@@ -21,22 +21,27 @@ def test_pre_versioning_store_is_adopted(tmp_path):
     path = tmp_path / "m.db"
     conn = db.connect(path)
     store.remember(conn, "old fact", mtype="semantic")
+    # simulate a true pre-versioning v0.1 store: no migration artefacts, version 0
+    conn.execute("DROP TABLE injection_log")
     conn.execute("PRAGMA user_version = 0")
     conn.close()
     conn = db.connect(path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     assert conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0] == 1
+    assert conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE name='injection_log'").fetchone()[0] == 1
 
 
 def test_migrations_apply_in_order_exactly_once(tmp_path, monkeypatch):
     path = tmp_path / "m.db"
     db.connect(path).close()
+    base = db.SCHEMA_VERSION
     monkeypatch.setattr(db, "MIGRATIONS", {
-        2: ["CREATE TABLE mig_a (x INTEGER)"],
-        3: ["INSERT INTO mig_a (x) VALUES (1)"],
+        base + 1: ["CREATE TABLE mig_a (x INTEGER)"],
+        base + 2: ["INSERT INTO mig_a (x) VALUES (1)"],
     })
     conn = db.connect(path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == base + 2
     assert conn.execute("SELECT COUNT(*) FROM mig_a").fetchone()[0] == 1
     conn.close()
     conn = db.connect(path)  # re-connect must not re-run
@@ -49,13 +54,13 @@ def test_failed_migration_rolls_back_completely(tmp_path, monkeypatch):
     store.remember(conn, "survives", mtype="semantic")
     conn.close()
     monkeypatch.setattr(db, "MIGRATIONS", {
-        2: ["CREATE TABLE mig_ok (x INTEGER)", "INSERT INTO does_not_exist VALUES (1)"],
+        db.SCHEMA_VERSION + 1: ["CREATE TABLE mig_ok (x INTEGER)", "INSERT INTO does_not_exist VALUES (1)"],
     })
     with pytest.raises(db.MigrationError):
         db.connect(path)
-    monkeypatch.setattr(db, "MIGRATIONS", {})
+    monkeypatch.setattr(db, "MIGRATIONS", dict(db.MIGRATIONS) if False else {})
     conn = db.connect(path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == db.SCHEMA_VERSION
     assert conn.execute(
         "SELECT COUNT(*) FROM sqlite_master WHERE name='mig_ok'").fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0] == 1
@@ -64,17 +69,17 @@ def test_failed_migration_rolls_back_completely(tmp_path, monkeypatch):
 def test_cli_fails_loud_on_migration_error(tmp_path, monkeypatch, capsys):
     path = tmp_path / "m.db"
     db.connect(path).close()
-    monkeypatch.setattr(db, "MIGRATIONS", {2: ["INSERT INTO nope VALUES (1)"]})
+    monkeypatch.setattr(db, "MIGRATIONS", {db.SCHEMA_VERSION + 1: ["INSERT INTO nope VALUES (1)"]})
     rc = cli_main(["--db", str(path), "status"])
     assert rc == 1
-    assert "migration to schema version 2" in capsys.readouterr().err
+    assert "migration to schema version" in capsys.readouterr().err
 
 
 def test_hooks_fail_soft_on_migration_error(tmp_path, monkeypatch):
     path = tmp_path / "m.db"
     db.connect(path).close()
     monkeypatch.setenv("AI_MEMORY_DB", str(path))
-    monkeypatch.setattr(db, "MIGRATIONS", {2: ["INSERT INTO nope VALUES (1)"]})
+    monkeypatch.setattr(db, "MIGRATIONS", {db.SCHEMA_VERSION + 1: ["INSERT INTO nope VALUES (1)"]})
     sys.path.insert(0, str(ROOT / "hooks"))
     import session_start
 
