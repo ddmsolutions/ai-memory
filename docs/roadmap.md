@@ -29,7 +29,9 @@ Build order and section detail: `docs/plan.md`.
 - `why <id>`: explain a memory - captured when, from which session, promoted from what, recalled how often. The lineage columns already hold this; expose it.
 - `export` / `import` for moving a store between machines (pushed from v0.2: trustworthiness before portability)
 - Skill-based routing: a description-routed skill so the model saves and consults memory proactively, not only via /memory
-- Contradiction and near-duplicate detection at consolidation
+- Associative links: `memory_links (src_memory, dst_memory, rel)` join table with a closed vocabulary (derives_from, supports, contradicts, follows). Stores decision chains (conclusion linked to premises), NOT raw chain-of-thought transcripts, and lets recall expand one hop so a memory brings its premises with it.
+- Entity mentions: `memory_entities (memory_id, entity_id)` join table bridging the memory store and the graph. Makes "everything we know about X" one query, and is the implementation substrate for purge-by-subject, `why`, and graph-aware recall.
+- Contradiction and near-duplicate detection at consolidation; a confirmed conflict is recorded as a `contradicts` link in memory_links
 - Subagent spawn-time recall injection (pairs with v0.2 SubagentStop capture)
 - Automatic entity extraction during consolidation (model-driven, engine-verified upserts; pulled from v0.2 pending dogfooding evidence)
 - Optional embedding layer behind the existing `search` interface (local model first, fail-soft), hybrid rank with FTS
