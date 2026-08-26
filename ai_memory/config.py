@@ -24,6 +24,10 @@ DEFAULTS: dict = {
     "trace_retention_days": 30,    # recall traces older than this purge at decay
     "handoff_ttl_days": 7,         # unconsumed handoffs older than this purge at decay
     "embed_enabled": False,        # optional semantic search layer (local model, fail-soft)
+    "hybrid_semantic_weight": 0.5, # RRF blend: 0 = pure bm25, 1 = pure cosine (#59)
+    "foreign_scope_penalty": 0.5,  # score multiplier for rows outside preferred+global scope (#60)
+    "embed_query_prefix": "search_query: ",      # task prefix, model-specific (nomic default)
+    "embed_doc_prefix": "search_document: ",     # task prefix for indexing
     "embed_model": "nomic-embed-text",
     "embed_url": "http://localhost:11434",  # Ollama-compatible /api/embeddings endpoint
     "link_half_life_days": 45.0,   # associative link weight decay

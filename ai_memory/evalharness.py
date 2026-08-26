@@ -126,11 +126,12 @@ def run_eval_file(
     questions_path: Path,
     k: int = 5,
     out_path: Path | None = None,
+    cfg: dict | None = None,
 ) -> dict:
     questions = json.loads(Path(questions_path).read_text(encoding="utf-8"))
     if not isinstance(questions, list):
         raise ValueError("questions file must be a JSON list")
-    report = run_eval(conn, questions, k=k)
+    report = run_eval(conn, questions, k=k, cfg=cfg)
     if out_path:
         Path(out_path).write_text(json.dumps(report, indent=2), encoding="utf-8")
     return report

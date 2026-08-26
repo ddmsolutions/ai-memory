@@ -21,6 +21,7 @@ DEFAULT_GRID: dict[str, list] = {
     "recency_half_life_days": [15.0, 30.0, 60.0],
     "usage_saturation": [2.0, 3.0, 5.0],
     "pack_limit": [8, 12, 16],
+    "hybrid_semantic_weight": [0.0, 0.3, 0.5, 0.7],
 }
 
 

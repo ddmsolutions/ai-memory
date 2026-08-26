@@ -19,7 +19,7 @@ VECTORS = {
 
 @pytest.fixture
 def fake_embed(monkeypatch):
-    monkeypatch.setattr(embeddings, "embed_text", lambda text, cfg: VECTORS.get(text))
+    monkeypatch.setattr(embeddings, "embed_text", lambda text, cfg, kind="document": VECTORS.get(text))
 
 
 @pytest.fixture
@@ -53,7 +53,7 @@ def test_disabled_changes_nothing(conn, fake_embed):
 
 
 def test_server_down_fails_soft(conn, monkeypatch):
-    monkeypatch.setattr(embeddings, "embed_text", lambda text, cfg: None)
+    monkeypatch.setattr(embeddings, "embed_text", lambda text, cfg, kind="document": None)
     assert embeddings.index_memories(conn, _cfg()) == 0
     assert store.search(conn, "postgres", cfg=_cfg()) == []
 

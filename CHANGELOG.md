@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.6.7 - 2026-08-26
+
+### Fixed
+- Embeddings are now consulted on every retrieval surface (#59): search, pack task-matching, turn recall, and eval blend cosine with bm25 via Reciprocal Rank Fusion (tunable `hybrid_semantic_weight`, in the tune grid); model task prefixes (`embed_query_prefix`/`embed_doc_prefix`) applied at query and index time with `embed-index --force` for re-embedding; fail-soft to pure bm25 preserved. Live eval: hit_rate 0.625 to 0.8125, MRR 0.45 to 0.575, both named semantic-gap misses flipped, zero avoid regressions (one avoid improvement)
+- Scope relevance in search (#60): without an explicit `--scope`, rows outside the preferred scope (CLI derives it from cwd) and global are down-weighted by `foreign_scope_penalty`, never hard-filtered; explicit scope behaviour unchanged; global rows never penalised
+- SQLite connections gain a 15s busy timeout (embed-index hit "database is locked" against live hook writers)
+
+
 ## v0.6.6 - 2026-08-26
 
 ### Added

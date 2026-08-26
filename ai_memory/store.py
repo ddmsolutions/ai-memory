@@ -73,6 +73,7 @@ def search(
     limit: int = 20,
     include_superseded: bool = False,
     cfg: dict | None = None,
+    preferred_scope: str | None = None,
 ) -> list[sqlite3.Row]:
     table = "memories" if include_superseded else "v_active_memories"
     sql = (
@@ -88,41 +89,63 @@ def search(
         sql += " AND m.scope IN (?, 'global')"
         params.append(scope)
     sql += " ORDER BY rank LIMIT ?"
-    params.append(limit)
-    rows = conn.execute(sql, params).fetchall()
-    # FR-V1: optional semantic augmentation. FTS results lead; embedding
-    # candidates fill remaining slots. Any failure degrades to FTS-only.
-    if cfg and cfg.get("embed_enabled") and len(rows) < limit:
-        try:
-            from . import embeddings
+    params.append(limit * 3)
+    fts_rows = conn.execute(sql, params).fetchall()
+    if cfg is None:
+        return fts_rows[:limit]
 
-            have = {r["id"] for r in rows}
-            for memory_id, sim in embeddings.semantic_candidates(conn, query, cfg, limit * 2):
-                if memory_id in have:
-                    continue
-                # rank sentinel: -(1 + cosine) so -rank stays positive and
-                # semantic hits survive a turn_recall_min_score threshold.
-                extra_sql = (
-                    f"SELECT *, {-(1.0 + float(sim))} AS rank FROM "
-                    + ("memories" if include_superseded else "v_active_memories")
-                    + " WHERE id = ?"
-                )
-                extra_params: list = [memory_id]
-                if mtype:
-                    extra_sql += " AND type = ?"
-                    extra_params.append(mtype)
-                if scope:
-                    extra_sql += " AND scope IN (?, 'global')"
-                    extra_params.append(scope)
-                extra = conn.execute(extra_sql, extra_params).fetchone()
-                if extra is not None:
-                    rows.append(extra)
-                    have.add(memory_id)
-                if len(rows) >= limit:
-                    break
-        except Exception:
-            pass
-    return rows
+    # #59: Reciprocal Rank Fusion of the bm25 and cosine orderings. Scale-free
+    # (no score normalisation needed), one tunable blend weight, and weight 0
+    # or a dead backend degrades to pure bm25 (fail-soft).
+    K = 60.0
+    weight = 0.0
+    sem_pairs: list[tuple[int, float]] = []
+    if cfg.get("embed_enabled"):
+        weight = max(0.0, min(1.0, float(cfg.get("hybrid_semantic_weight", 0.0))))
+        if weight > 0:
+            try:
+                from . import embeddings
+
+                sem_pairs = embeddings.semantic_candidates(conn, query, cfg, limit * 3)
+            except Exception:
+                sem_pairs = []
+    rows_by_id: dict[int, sqlite3.Row] = {}
+    scores: dict[int, float] = {}
+    for i, r in enumerate(fts_rows):
+        rows_by_id[r["id"]] = r
+        scores[r["id"]] = (1.0 - weight) * (1.0 / (K + i + 1))
+    for j, (memory_id, sim) in enumerate(sem_pairs):
+        if memory_id not in rows_by_id:
+            # rank sentinel: -(1 + cosine) so -rank stays positive and
+            # semantic hits survive a turn_recall_min_score threshold.
+            extra_sql = (
+                f"SELECT *, {-(1.0 + float(sim))} AS rank FROM "
+                + ("memories" if include_superseded else "v_active_memories")
+                + " WHERE id = ?"
+            )
+            extra_params: list = [memory_id]
+            if mtype:
+                extra_sql += " AND type = ?"
+                extra_params.append(mtype)
+            if scope:
+                extra_sql += " AND scope IN (?, 'global')"
+                extra_params.append(scope)
+            extra = conn.execute(extra_sql, extra_params).fetchone()
+            if extra is None:
+                continue
+            rows_by_id[memory_id] = extra
+        scores[memory_id] = scores.get(memory_id, 0.0) + weight * (1.0 / (K + j + 1))
+
+    # #60: soft scope relevance. Without an explicit scope filter, rows outside
+    # the preferred scope and global are down-weighted, never removed.
+    penalty = max(0.0, min(1.0, float(cfg.get("foreign_scope_penalty", 1.0))))
+    if preferred_scope and scope is None and penalty < 1.0:
+        for memory_id, r in rows_by_id.items():
+            if r["scope"] not in (preferred_scope, "global"):
+                scores[memory_id] *= penalty
+
+    ordered = sorted(rows_by_id.values(), key=lambda r: -scores[r["id"]])
+    return ordered[:limit]
 
 
 def _eviction_order(cfg: dict) -> str:
@@ -243,7 +266,7 @@ def recall_pack(
     sections.append(("How to work (procedural)", take(procedural, max(3, limit // 3))))
     sections.append(("Known facts (semantic)", take(semantic, max(3, limit // 3))))
     if task:
-        matches = search(conn, task, scope=scope, limit=limit)
+        matches = search(conn, task, scope=scope, limit=limit, cfg=cfg)
         sections.append((f"Relevant to: {task}", take(matches, max(3, limit // 3))))
 
     graph_lines: list[str] = []

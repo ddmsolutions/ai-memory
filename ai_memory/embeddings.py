@@ -14,11 +14,14 @@ import sqlite3
 import urllib.request
 
 
-def embed_text(text: str, cfg: dict) -> list[float] | None:
+def embed_text(text: str, cfg: dict, kind: str = "document") -> list[float] | None:
+    """kind selects the model task prefix (query vs document): embedding models
+    trained with prefixes measurably underperform on raw text (#59)."""
+    prefix = cfg.get("embed_query_prefix" if kind == "query" else "embed_doc_prefix") or ""
     try:
         req = urllib.request.Request(
             f"{cfg['embed_url']}/api/embeddings",
-            data=json.dumps({"model": cfg["embed_model"], "prompt": text}).encode("utf-8"),
+            data=json.dumps({"model": cfg["embed_model"], "prompt": prefix + text}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )
@@ -29,9 +32,13 @@ def embed_text(text: str, cfg: dict) -> list[float] | None:
         return None
 
 
-def index_memories(conn: sqlite3.Connection, cfg: dict, batch: int = 500) -> int:
+def index_memories(conn: sqlite3.Connection, cfg: dict, batch: int = 500, force: bool = False) -> int:
     """Embed active rows that lack a vector for the configured model.
-    Stops at the first embedding failure (server gone) rather than looping."""
+    Stops at the first embedding failure (server gone) rather than looping.
+    force drops the model's existing vectors first (prefix/model changes)."""
+    if force:
+        conn.execute("DELETE FROM memory_embeddings WHERE model = ?", (cfg["embed_model"],))
+        conn.commit()
     rows = conn.execute(
         "SELECT m.id, m.content FROM v_active_memories m"
         " LEFT JOIN memory_embeddings e ON e.memory_id = m.id AND e.model = ?"
@@ -40,7 +47,7 @@ def index_memories(conn: sqlite3.Connection, cfg: dict, batch: int = 500) -> int
     ).fetchall()
     done = 0
     for row in rows:
-        vector = embed_text(row["content"], cfg)
+        vector = embed_text(row["content"], cfg, kind="document")
         if vector is None:
             break
         conn.execute(
@@ -67,7 +74,7 @@ def semantic_candidates(
     conn: sqlite3.Connection, query: str, cfg: dict, limit: int
 ) -> list[tuple[int, float]]:
     """Top memory ids by cosine similarity to the query. Empty on any failure."""
-    query_vec = embed_text(query, cfg)
+    query_vec = embed_text(query, cfg, kind="query")
     if query_vec is None:
         return []
     scored = []

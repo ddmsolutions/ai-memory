@@ -136,7 +136,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("lint", help="store health: duplicates, overdue facts, stale rules, contradictions, quarantine")
     sc = sub.add_parser("scorecard", help="weekly dogfood scorecard (read-only)")
     sc.add_argument("--days", type=int, default=7)
-    sub.add_parser("embed-index", help="embed active memories via the configured local model (no-op when disabled)")
+    ei = sub.add_parser("embed-index", help="embed active memories via the configured local model (no-op when disabled)")
+    ei.add_argument("--force", action="store_true", help="drop and re-embed (after model/prefix changes)")
 
     w = sub.add_parser("why", help="explain a memory: origin, lineage, corrections, usage")
     w.add_argument("id", type=int)
@@ -236,7 +237,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"remembered #{mid} ({args.mtype})")
     elif args.command == "search":
-        for row in store.search(conn, args.query, mtype=args.mtype, scope=args.scope, limit=args.limit):
+        import os as _os
+
+        from . import config as _config
+
+        _cfg = _config.load()
+        preferred = None if args.scope else _config.resolve_scope(_os.getcwd(), _cfg)
+        for row in store.search(conn, args.query, mtype=args.mtype, scope=args.scope,
+                                limit=args.limit, cfg=_cfg, preferred_scope=preferred):
             print(f"#{row['id']} [{row['type']}/{row['scope']}] {row['content']}")
     elif args.command == "recall":
         print(store.recall_pack(conn, task=args.task, scope=args.scope, limit=args.limit))
@@ -338,7 +346,10 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "eval":
         from . import evalharness
 
-        report = evalharness.run_eval_file(conn, args.questions, k=args.k, out_path=args.out)
+        from . import config as _config
+
+        report = evalharness.run_eval_file(conn, args.questions, k=args.k, out_path=args.out,
+                                           cfg=_config.load())
         summary = {key: report[key] for key in ("questions", "hits", "hit_rate", "mrr", "misses")}
         print(json.dumps(summary, indent=2))
     elif args.command == "decay":
@@ -392,7 +403,7 @@ def main(argv: list[str] | None = None) -> int:
         if not cfg["embed_enabled"]:
             print("embeddings disabled (config embed_enabled)")
         else:
-            print(f"embedded {embeddings.index_memories(conn, cfg)} memories")
+            print(f"embedded {embeddings.index_memories(conn, cfg, force=args.force)} memories")
     elif args.command == "scorecard":
         print(json.dumps(store.scorecard(conn, days=args.days), indent=2))
     elif args.command == "lint":

@@ -66,6 +66,10 @@ All tunables live in `~/.ai-memory/config.json` (override the path with `AI_MEMO
 | `trace_retention_days` | 30 | Recall traces purge after this at decay |
 | `handoff_ttl_days` | 7 | Unconsumed handoffs purge after this at decay |
 | `embed_enabled` | false | Optional semantic search layer (local model, fail-soft) |
+| `hybrid_semantic_weight` | 0.5 | RRF blend of cosine with bm25; 0 = pure keyword |
+| `foreign_scope_penalty` | 0.5 | Down-weight for rows outside the preferred scope + global |
+| `embed_query_prefix` | search_query:  | Model task prefix for queries (model-specific) |
+| `embed_doc_prefix` | search_document:  | Model task prefix for indexing |
 | `embed_model` | nomic-embed-text | Embedding model name |
 | `embed_url` | http://localhost:11434 | Ollama-compatible endpoint |
 | `instruction_patterns` | `[]` | Extra injection screens `{label, regex}` (adopt via `policy adopt`) |
