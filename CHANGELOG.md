@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.6.1 - 2026-08-26
+
+Entity coverage: the graph now populates itself from what memos already declare.
+
+### Added
+- Deterministic entity mentions: capture parses the memo `entities:` line into screened mentions (names length-capped and instruction-screened, graph lines are an injection surface); quarantined memos create nothing; `entity backfill` sweeps existing memories idempotently (#52)
+- Engine support for model-driven extraction: autoconsolidate accepts an entity_extractor callable, validates every proposal, and upserts mentions only for non-quarantined promotions (#53)
+
+
 ## v0.6.0 - 2026-08-26
 
 The self-learning release, plus the visual graph. Third cold review before tagging: one blocker (distiller output unscreened) and seven findings fixed pre-release.

@@ -123,6 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
     em.add_argument("--etype", default=None)
     eab = esub.add_parser("about", help="everything we know about an entity")
     eab.add_argument("name")
+    esub.add_parser("backfill", help="mention-link existing memories via their entities: lines")
 
     sub.add_parser("lint", help="store health: duplicates, overdue facts, stale rules, contradictions, quarantine")
     sc = sub.add_parser("scorecard", help="weekly dogfood scorecard (read-only)")
@@ -343,6 +344,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.entity_command == "mention":
             graph.mention(conn, args.memory_id, args.name, etype=args.etype)
             print(f"memory #{args.memory_id} mentions {args.name}")
+        elif args.entity_command == "backfill":
+            print(json.dumps(graph.backfill_mentions(conn)))
         elif args.entity_command == "about":
             rows = graph.memories_about(conn, args.name)
             if not rows:

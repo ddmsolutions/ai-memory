@@ -92,7 +92,7 @@ def main() -> int:
     if not memos and not handoff_blocks:
         return 0
     try:
-        from ai_memory import config, db, redact, store
+        from ai_memory import config, db, graph, redact, store
 
         cfg = config.load()
         if config.is_excluded(payload.get("cwd"), cfg):
@@ -120,6 +120,8 @@ def main() -> int:
                 )
                 if not flag:
                     store.link_co_session(conn, mid, session_id)
+                    # FR-N4: the memo's own entities: line joins the graph.
+                    graph.mention_from_content(conn, mid, memo)
                 already.add(memo)
         for block in handoff_blocks:
             try:

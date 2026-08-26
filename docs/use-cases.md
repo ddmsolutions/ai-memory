@@ -135,7 +135,7 @@ The behavioural model of ai-memory. Every use case decomposes into numbered requ
 - **UC-21 Flag a stale fact** - LIVE (2026-08-25). A semantic row past `verify_by` recalls with a verify warning. FR-A2.
 - **UC-22 Screen instruction-shaped memos** - LIVE (2026-08-25). Capture flags or refuses content that reads as instructions to the model. FR-C8.
 - **UC-23 Chain memories associatively** - LIVE (2026-08-25). Typed weighted links (curated + auto co_session), Hebbian reinforce/decay, candidate-set retrieval. FR-L1..L5, NFR-12.
-- **UC-24 Bridge memories to entities** - LIVE (2026-08-25). Mentions join makes "everything about X" one query. FR-N1.
+- **UC-24 Bridge memories to entities** - LIVE (2026-08-25; extended 2026-08-26: deterministic entities:-line mentions at capture, idempotent backfill, engine-verified extractor at consolidation). Mentions join makes "everything about X" one query. FR-N1.
 - **UC-25 Purge a subject** - LIVE (2026-08-25). One confirmed command erases an entity or session everywhere. FR-N2.
 - **UC-26 Graph-aware recall** - LIVE (2026-08-25). The task's entity neighbourhood joins the pack, budget-capped. FR-N3.
 - **UC-27 Explain a memory** - LIVE (2026-08-25). `why <id>` tells the row's full story. FR-M1.

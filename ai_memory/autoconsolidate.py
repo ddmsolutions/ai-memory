@@ -19,6 +19,8 @@ from . import config as config_mod, db, evalharness, store
 
 # distiller(content) -> (mtype, distilled_content, certain) | None
 Distiller = Callable[[str], tuple[str, str, bool] | None]
+# entity_extractor(content) -> [(name, etype)] - FR-N5, engine-verified upserts
+Extractor = Callable[[str], list[tuple[str, str]]]
 
 
 def _hygiene(conn: sqlite3.Connection, cfg: dict, dry_run: bool) -> dict:
@@ -58,11 +60,15 @@ def _hygiene(conn: sqlite3.Connection, cfg: dict, dry_run: bool) -> dict:
 
 
 def _distil(
-    conn: sqlite3.Connection, distiller: Distiller | None, cfg: dict, dry_run: bool
+    conn: sqlite3.Connection,
+    distiller: Distiller | None,
+    cfg: dict,
+    dry_run: bool,
+    entity_extractor: Extractor | None = None,
 ) -> dict:
-    from . import redact
+    from . import graph, redact
 
-    result = {"promoted": 0, "quarantined": 0, "left": 0}
+    result = {"promoted": 0, "quarantined": 0, "left": 0, "entities_mentioned": 0}
     if distiller is None:
         result["left"] = len(store.unconsolidated(conn))
         return result
@@ -87,6 +93,14 @@ def _distil(
             result["quarantined"] += 1
         else:
             result["promoted"] += 1
+            if entity_extractor is not None:
+                # FR-N5: model proposes, engine validates. Same name guards as
+                # the deterministic path; quarantined promotions get nothing.
+                for name, etype in entity_extractor(content) or []:
+                    name = str(name).strip()
+                    if graph._valid_entity_name(name):
+                        graph.mention(conn, new_id, name, etype=str(etype)[:30] or "thing")
+                        result["entities_mentioned"] += 1
     return result
 
 
@@ -97,6 +111,7 @@ def run(
     k: int = 5,
     dry_run: bool = False,
     distiller: Distiller | None = None,
+    entity_extractor: Extractor | None = None,
 ) -> dict:
     db_path = Path(db_path)
     if cfg is None:
@@ -114,7 +129,7 @@ def run(
         "dry_run": dry_run,
         "snapshot": str(snapshot) if not dry_run else None,
         "hygiene": _hygiene(conn, cfg, dry_run),
-        "distillation": _distil(conn, distiller, cfg, dry_run),
+        "distillation": _distil(conn, distiller, cfg, dry_run, entity_extractor),
         "reverted": False,
     }
 

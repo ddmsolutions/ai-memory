@@ -101,6 +101,8 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 - **FR-N1** A `memory_entities (memory_id, entity_id)` join table MUST bridge memories and the graph.
 - **FR-N2** Purge-by-subject MUST delete, in one confirmed command, every memory, mention, and edge for a named entity or session, reporting what went.
 - **FR-N3** Graph-aware recall MUST be able to pull the entity neighbourhood relevant to the task into the pack, budget-capped.
+- **FR-N4** (shipped 2026-08-26) Capture MUST parse a memo's `entities:` line and create screened mentions (auto-creating entities) for non-quarantined memos; entity names are length-capped and instruction-screened because graph lines are an injection surface; `entity backfill` sweeps existing memories idempotently.
+- **FR-N5** (shipped 2026-08-26) autoconsolidate MUST accept an entity_extractor callable whose proposals the engine validates (same name guards) and upserts only for non-quarantined promotions.
 
 ### Measurement and explainability (FR-M, v0.3 draft; FR-M4 Later)
 

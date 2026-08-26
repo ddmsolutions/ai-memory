@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 
 
@@ -70,6 +71,59 @@ def neighbours(conn: sqlite3.Connection, name: str) -> list[dict]:
         {"id": ent["id"]},
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+_ENTITY_LINE_RE = re.compile(r"^entities:\s*(.+)$", re.I | re.M)
+
+
+def _valid_entity_name(name: str) -> bool:
+    """Entity names are later injected via graph lines, so they get the same
+    guards as content: length caps and the instruction screen."""
+    from . import redact
+
+    return 3 <= len(name) <= 60 and redact.screen_instructions(name) is None
+
+
+def parse_entity_names(text: str) -> list[str]:
+    """FR-N4: the memo format already names its entities on an `entities:` line;
+    parse it deterministically. Returns validated, deduped names in order."""
+    names: list[str] = []
+    seen: set[str] = set()
+    for match in _ENTITY_LINE_RE.finditer(text):
+        for raw in match.group(1).split(","):
+            name = raw.strip().strip(".")
+            key = name.lower()
+            if name and key not in seen and _valid_entity_name(name):
+                seen.add(key)
+                names.append(name)
+    return names
+
+
+def mention_from_content(conn: sqlite3.Connection, memory_id: int, content: str) -> int:
+    """Create mentions for every entity the content's entities: line names."""
+    added = 0
+    for name in parse_entity_names(content):
+        mention(conn, memory_id, name)
+        added += 1
+    return added
+
+
+def backfill_mentions(conn: sqlite3.Connection) -> dict:
+    """One-off (idempotent) sweep: mention-link existing active memories whose
+    content carries entities: lines."""
+    before_entities = conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0]
+    before_mentions = conn.execute("SELECT COUNT(*) FROM memory_entities").fetchone()[0]
+    scanned = 0
+    for row in conn.execute("SELECT id, content FROM v_active_memories"):
+        scanned += 1
+        mention_from_content(conn, row["id"], row["content"])
+    return {
+        "memories_scanned": scanned,
+        "mentions_added": conn.execute(
+            "SELECT COUNT(*) FROM memory_entities").fetchone()[0] - before_mentions,
+        "entities_created": conn.execute(
+            "SELECT COUNT(*) FROM entities").fetchone()[0] - before_entities,
+    }
 
 
 def mention(

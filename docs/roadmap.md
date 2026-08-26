@@ -36,7 +36,7 @@ Everything below delivered except where marked; details in CHANGELOG.md.
 - [SHIPPED 2026-08-25] Eval harness: `eval --questions <file>` runs a labelled set against retrieval read-only, reporting hit rate + MRR (issue #19). Build the real ~20-question set from dogfooding misses; NFR-11 now enforceable.
 - Memory linter: one health pass reporting contradictions and near-duplicates (a confirmed conflict recorded as a `contradicts` link in memory_links), orphaned promotion lineage, stale unverified facts, and procedural rules whose evidence has decayed away, which take a confidence penalty rather than persisting unchallenged
 - Subagent spawn-time recall injection (pairs with v0.2 SubagentStop capture)
-- Automatic entity extraction during consolidation (model-driven, engine-verified upserts; pulled from v0.2 pending dogfooding evidence)
+- [SHIPPED 2026-08-26, v0.6.1] Entity extraction: deterministic entities:-line mentions at capture + backfill (#52) and engine-verified extractor support at consolidation (#53); the item was lost from the tracker between roadmap and issues, restored by the graph-imbalance question
 - Optional embedding layer behind the existing `search` interface (local model first, fail-soft), hybrid rank with FTS
 - Graph queries in recall: pull the entity neighbourhood relevant to the current task into the pack
 - Recall budget control: token-aware pack compilation with per-section caps
