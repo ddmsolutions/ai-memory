@@ -363,8 +363,9 @@ def handoff_write(
     other injectable surface: redacted, and instruction-shaped content refused."""
     from . import redact as _redact
 
-    content = _redact.redact(content, config.load().get("secret_patterns"))[0]
-    if _redact.screen_instructions(content):
+    _cfg = config.load()
+    content = _redact.redact(content, _cfg.get("secret_patterns"))[0]
+    if _redact.screen_instructions(content, _cfg.get("instruction_patterns")):
         raise ValueError("instruction-shaped content refused for a handoff")
     existing = conn.execute(
         "SELECT id FROM handoffs WHERE content = ? AND consumed_at IS NULL", (content,)
@@ -513,8 +514,9 @@ def intend(
     # packs; it gets the same redaction and instruction screen as remember.
     from . import redact as _redact
 
-    content = _redact.redact(content, config.load().get("secret_patterns"))[0]
-    if _redact.screen_instructions(content):
+    _cfg = config.load()
+    content = _redact.redact(content, _cfg.get("secret_patterns"))[0]
+    if _redact.screen_instructions(content, _cfg.get("instruction_patterns")):
         raise ValueError("instruction-shaped content refused for an intention")
     cur = conn.execute(
         "INSERT INTO intentions (content, trigger_kind, trigger_value, scope, origin_session)"
@@ -732,6 +734,46 @@ def decay(conn: sqlite3.Connection, cfg: dict | None = None, dry_run: bool = Fal
     return rows
 
 
+def _significant_terms(text: str) -> set[str]:
+    return {
+        w.lower().strip(".,?!:;'\"()")
+        for w in text.split()
+        if len(w) > 2 and w.lower().strip(".,?!:;'\"()") not in _STOPWORDS
+    }
+
+
+def detect_reexplanations(conn: sqlite3.Connection, days: int = 7, overlap: float = 0.6) -> list[dict]:
+    """FR-SL2: a freshly captured memo that near-duplicates an older active
+    memory means recall failed, the user re-explained something the store knew."""
+    found: list[dict] = []
+    recent = conn.execute(
+        "SELECT * FROM v_active_memories WHERE type = 'episodic'"
+        " AND origin_session IS NOT NULL AND created_at >= datetime('now', ?)",
+        (f"-{int(days)} days",),
+    ).fetchall()
+    for row in recent:
+        terms = _significant_terms(row["content"])
+        if len(terms) < 3:
+            continue
+        for match in search(conn, " ".join(sorted(terms)), limit=5):
+            if match["id"] == row["id"] or match["created_at"] >= row["created_at"]:
+                continue
+            if match["origin_session"] == row["origin_session"] and match["origin_session"]:
+                continue
+            match_terms = _significant_terms(match["content"])
+            if not match_terms:
+                continue
+            ratio = len(terms & match_terms) / len(terms)
+            if ratio >= overlap:
+                found.append({
+                    "new_id": row["id"], "old_id": match["id"],
+                    "new_content": row["content"], "old_content": match["content"],
+                    "overlap": round(ratio, 2),
+                })
+                break
+    return found
+
+
 def lint(conn: sqlite3.Connection) -> list[dict]:
     """FR-M3: one health pass over the store. Reports, never mutates."""
     findings: list[dict] = []
@@ -781,6 +823,12 @@ def lint(conn: sqlite3.Connection) -> list[dict]:
         conn.execute("SELECT julianday('now') - julianday(?)", (last_capture,)).fetchone()[0]
         if last_capture else None
     )
+    for pair in detect_reexplanations(conn):
+        findings.append({
+            "issue": "re_explained",
+            "ids": f"{pair['new_id']},{pair['old_id']}",
+            "detail": f"recall failure: '{pair['new_content'][:60]}' re-explains #{pair['old_id']}",
+        })
     if quiet_days is None or quiet_days > 7:
         detail = (
             f"no hook-captured memo for {quiet_days:.0f} days" if quiet_days
