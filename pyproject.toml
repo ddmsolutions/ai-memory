@@ -8,6 +8,9 @@ license = { text = "MIT" }
 authors = [{ name = "DDM Solutions Ltd" }]
 keywords = ["claude-code", "memory", "agent", "sqlite", "knowledge-graph"]
 
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
 [project.scripts]
 ai-memory = "ai_memory.__main__:main"
 

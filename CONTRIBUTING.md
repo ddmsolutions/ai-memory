@@ -4,7 +4,7 @@ Small, disciplined contributions land fast here. The bar is defined by three doc
 
 ## Ground rules
 
-- **Python 3.10+ standard library only.** No runtime dependencies, ever. Optional layers (like embeddings) must fail soft when their backend is absent.
+- **Python 3.10+ standard library only.** No runtime dependencies, ever. Dev tooling installs with `pip install -e .[test]` (pytest is the only dev dependency, declared in pyproject). Optional layers (like embeddings) must fail soft when their backend is absent.
 - **Hooks never block a session.** Every hook swallows every error and exits 0. This is test-covered and non-negotiable.
 - **Supersession over mutation.** Corrections insert a new row pointing at the old one; nothing rewrites history in place.
 - **Schema changes ship as migrations** (`db.MIGRATIONS`, ordered, transactional, idempotent) and update `docs/data-architecture.md` in the same commit, including the Mermaid diagrams (render-test them).
