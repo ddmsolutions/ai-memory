@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ai-memory graph</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font: 13px/1.4 system-ui, sans-serif; background: #101418; color: #d8dee6; }
+  #graph { position: absolute; inset: 0; }
+  #panel { position: absolute; top: 10px; left: 10px; width: 240px; background: #1a2027ee;
+           border: 1px solid #2c3540; border-radius: 8px; padding: 10px 12px; z-index: 5; }
+  #detail { position: absolute; top: 10px; right: 10px; width: 300px; max-height: 85vh; overflow: auto;
+            background: #1a2027ee; border: 1px solid #2c3540; border-radius: 8px; padding: 10px 12px;
+            z-index: 5; display: none; }
+  h4 { margin: 6px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #8b98a8; }
+  label { display: block; margin: 2px 0; }
+  input[type=text], select { width: 100%; box-sizing: border-box; background: #101418; color: #d8dee6;
+           border: 1px solid #2c3540; border-radius: 4px; padding: 3px 6px; }
+  input[type=range] { width: 100%; }
+  .hint { color: #6d7a8a; font-size: 11px; }
+  .badge { display: inline-block; padding: 0 6px; border-radius: 8px; font-size: 11px; margin-right: 4px; }
+  .untrusted { background: #7a2e12; }
+  #detail .content { white-space: pre-wrap; word-break: break-word; margin: 6px 0; }
+</style>
+</head>
+<body>
+<div id="graph"></div>
+<div id="panel">
+  <h4>ai-memory graph</h4>
+  <div id="counts" class="hint"></div>
+  <h4>Kinds</h4>
+  <label><input type="checkbox" class="kindf" value="semantic" checked> semantic</label>
+  <label><input type="checkbox" class="kindf" value="procedural" checked> procedural</label>
+  <label><input type="checkbox" class="kindf" value="episodic" checked> episodic</label>
+  <label><input type="checkbox" class="kindf" value="entity" checked> entities</label>
+  <h4>Scope</h4>
+  <select id="scopef"><option value="">all scopes</option></select>
+  <h4>Relation</h4>
+  <select id="relf"><option value="">all relations</option></select>
+  <h4>Min link weight <span id="wval" class="hint">0</span></h4>
+  <input type="range" id="weightf" min="0" max="1" step="0.02" value="0">
+  <h4>Created between</h4>
+  <input type="text" id="datefrom" placeholder="YYYY-MM-DD">
+  <input type="text" id="dateto" placeholder="YYYY-MM-DD" style="margin-top:3px">
+  <h4>Search</h4>
+  <input type="text" id="search" placeholder="find and centre (Enter)">
+  <div id="supwrap" style="display:none"><h4>Overlays</h4>
+    <label><input type="checkbox" id="supf"> supersession chains</label></div>
+  <h4>Decay scrubber <span id="tval" class="hint">t+0d</span></h4>
+  <input type="range" id="scrub" min="0" max="180" step="5" value="0">
+  <p class="hint">Click a node: ego view (click again: +1 hop, Esc: reset).</p>
+</div>
+<div id="detail"></div>
+<script>/*__LIB__*/</script>
+<script>
+const MODE = "__MODE__";
+const EMBEDDED = __DATA__;
+
+const COLORS = { semantic: "#4ea1ff", procedural: "#3ecf8e", episodic: "#c9a227",
+                 entity: "#b07ce8", quarantined: "#ff5c33" };
+
+function esc(s) { return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+
+function boot(data) {
+  const byId = new Map(data.nodes.map(n => [n.id, n]));
+  const adj = new Map(data.nodes.map(n => [n.id, new Set()]));
+  data.links.forEach(l => {
+    const s = typeof l.source === "object" ? l.source.id : l.source;
+    const t = typeof l.target === "object" ? l.target.id : l.target;
+    l._s = s; l._t = t;
+    adj.get(s)?.add(t); adj.get(t)?.add(s);
+  });
+  document.getElementById("counts").textContent =
+    `${data.counts.nodes} nodes, ${data.counts.links} links (${data.generated_at})`;
+
+  const scopes = [...new Set(data.nodes.map(n => n.scope).filter(Boolean))].sort();
+  const scopeSel = document.getElementById("scopef");
+  scopes.forEach(s => scopeSel.add(new Option(s, s)));
+  const rels = [...new Set(data.links.map(l => l.rel))].sort();
+  const relSel = document.getElementById("relf");
+  rels.forEach(r => relSel.add(new Option(r, r)));
+  if (data.nodes.some(n => n.superseded)) document.getElementById("supwrap").style.display = "block";
+
+  let ego = null, egoHops = 1, scrubDays = 0;
+
+  function linkEff(l) {
+    if (l.weight_raw === undefined) return l.weight;
+    return l.weight_raw * (1 / (1 + (l.age_days + scrubDays) / data.link_half_life_days));
+  }
+  function nodeKind(n) { return n.kind === "entity" ? "entity" : n.type; }
+  function egoSet() {
+    if (!ego) return null;
+    let frontier = new Set([ego]), seen = new Set([ego]);
+    for (let h = 0; h < egoHops; h++) {
+      const next = new Set();
+      frontier.forEach(id => adj.get(id)?.forEach(n => { if (!seen.has(n)) { seen.add(n); next.add(n); } }));
+      frontier = next;
+    }
+    return seen;
+  }
+  function visible() {
+    const kinds = new Set([...document.querySelectorAll(".kindf:checked")].map(c => c.value));
+    const scope = scopeSel.value, rel = relSel.value;
+    const minW = parseFloat(document.getElementById("weightf").value);
+    const from = document.getElementById("datefrom").value, to = document.getElementById("dateto").value;
+    const showSup = document.getElementById("supf")?.checked;
+    const focus = egoSet();
+    const nodes = data.nodes.filter(n =>
+      kinds.has(nodeKind(n)) &&
+      (!scope || n.scope === scope || n.scope === "global" || n.kind === "entity") &&
+      (!from || n.created >= from) && (!to || n.created <= to) &&
+      (showSup || !n.superseded) &&
+      (!focus || focus.has(n.id)));
+    const ids = new Set(nodes.map(n => n.id));
+    const links = data.links.filter(l =>
+      ids.has(l._s) && ids.has(l._t) &&
+      (!rel || l.rel === rel) &&
+      (l.kind === "supersedes" ? showSup : true) &&
+      linkEff(l) >= minW);
+    return { nodes, links };
+  }
+
+  const graph = ForceGraph()(document.getElementById("graph"))
+    .nodeId("id")
+    .nodeLabel(n => esc(n.label))
+    .nodeVal(n => 3 + Math.sqrt(n.recall_count || 0) * 3 + (n.pinned ? 3 : 0))
+    .nodeColor(n => n.quarantined ? COLORS.quarantined : (COLORS[nodeKind(n)] || "#8b98a8"))
+    .nodeCanvasObjectMode(n => (n.verify_overdue || n.quarantined) ? "before" : undefined)
+    .nodeCanvasObject((n, ctx) => {
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, 7 + Math.sqrt(n.recall_count || 0) * 1.5, 0, 2 * Math.PI);
+      ctx.strokeStyle = n.quarantined ? "#ff5c33" : "#e04545";
+      ctx.setLineDash([2, 2]); ctx.lineWidth = 1.2; ctx.stroke(); ctx.setLineDash([]);
+    })
+    .linkWidth(l => Math.max(0.4, linkEff(l) * 4))
+    .linkLineDash(l => linkEff(l) < data.link_prune_floor * 3 ? [3, 3] : null)
+    .linkColor(l => l.kind === "mention" ? "#b07ce866" : l.kind === "edge" ? "#b07ce8aa"
+                    : l.kind === "supersedes" ? "#e04545aa" : "#7d8b9c88")
+    .onNodeClick(n => {
+      if (ego === n.id) { egoHops = Math.min(egoHops + 1, 4); } else { ego = n.id; egoHops = 1; }
+      showDetail(n); refresh();
+    })
+    .onBackgroundClick(() => { hideDetail(); });
+
+  function refresh() { graph.graphData(visible()); }
+
+  function showDetail(n) {
+    const d = document.getElementById("detail");
+    const mentions = data.links.filter(l => l.kind === "mention" && (l._s === n.id || l._t === n.id))
+      .map(l => byId.get(l._s === n.id ? l._t : l._s)?.label).filter(Boolean);
+    d.innerHTML = `
+      ${n.quarantined ? '<span class="badge untrusted">UNTRUSTED</span>' : ""}
+      <b>${esc(n.kind === "entity" ? n.label : nodeKind(n))}</b>
+      <span class="hint">${esc(n.id)} · ${esc(n.created)}${n.scope && n.scope !== "global" ? " · " + esc(n.scope) : ""}</span>
+      <div class="content">${esc(n.content || "")}</div>
+      <div class="hint">
+        ${n.kind === "memory" ? `recalled ${n.recall_count} time(s) · confidence ${n.confidence}` : ""}
+        ${n.pinned ? " · pinned" : ""}${n.valence ? " · valence " + n.valence : ""}
+        ${n.verify_overdue ? " · <b>VERIFY overdue</b>" : ""}
+        ${n.superseded ? " · superseded" : ""}
+        ${n.promoted_from ? ` · distilled from m${n.promoted_from}` : ""}
+      </div>
+      ${mentions.length ? `<h4>Mentions</h4><div class="hint">${esc(mentions.join(", "))}</div>` : ""}
+      <p class="hint">ego ${egoHops} hop(s): click again to expand, Esc to reset</p>`;
+    d.style.display = "block";
+  }
+  function hideDetail() { document.getElementById("detail").style.display = "none"; }
+
+  document.querySelectorAll(".kindf").forEach(c => c.addEventListener("change", refresh));
+  ["scopef", "relf", "datefrom", "dateto"].forEach(id =>
+    document.getElementById(id).addEventListener("change", refresh));
+  document.getElementById("supf")?.addEventListener("change", refresh);
+  document.getElementById("weightf").addEventListener("input", e => {
+    document.getElementById("wval").textContent = e.target.value; refresh();
+  });
+  document.getElementById("scrub").addEventListener("input", e => {
+    scrubDays = parseInt(e.target.value, 10);
+    document.getElementById("tval").textContent = `t+${scrubDays}d`; refresh();
+  });
+  document.getElementById("search").addEventListener("keydown", e => {
+    if (e.key !== "Enter") return;
+    const q = e.target.value.toLowerCase();
+    const hit = data.nodes.find(n => (n.label || "").toLowerCase().includes(q));
+    if (hit) { ego = hit.id; egoHops = 1; refresh(); showDetail(hit);
+      setTimeout(() => { graph.centerAt(hit.x, hit.y, 600); graph.zoom(4, 600); }, 350); }
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") { ego = null; egoHops = 1; hideDetail(); refresh(); }
+  });
+  refresh();
+}
+
+if (MODE === "serve") {
+  fetch("/data.json").then(r => r.json()).then(boot);
+} else {
+  boot(EMBEDDED);
+}
+</script>
+</body>
+</html>

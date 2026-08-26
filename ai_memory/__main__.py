@@ -65,6 +65,13 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--questions", type=Path, required=True)
     ev.add_argument("--k", type=int, default=5)
     ev.add_argument("--out", type=Path, help="write the full JSON report here")
+    gr = sub.add_parser("graph", help="visual graph viewer: self-contained offline HTML (or --serve for live)")
+    gr.add_argument("--out", type=Path, default=Path("graph.html"))
+    gr.add_argument("--open", action="store_true", help="open in the default browser")
+    gr.add_argument("--include-quarantine", action="store_true")
+    gr.add_argument("--include-superseded", action="store_true")
+    gr.add_argument("--serve", type=int, metavar="PORT", help="live mode: localhost server, refresh to see DB edits")
+
     ob = sub.add_parser("observe", help="self-maintenance: read health surfaces, draft the issues they imply")
     ob.add_argument("--post", action="store_true", help="post directly via gh (only honoured when config observer_post = direct)")
     ob.add_argument("--drafts-dir", type=Path)
@@ -244,6 +251,24 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"adopted into {target} (revert with: tune --revert)")
             else:
                 print("NOT adopted: best cell does not beat baseline without degradation")
+    elif args.command == "graph":
+        from . import db as _db, viewer
+
+        conn.close()
+        path = args.db or _db.default_db_path()
+        if args.serve:
+            viewer.serve(path, port=args.serve,
+                         include_quarantine=args.include_quarantine,
+                         include_superseded=args.include_superseded)
+        else:
+            out = viewer.write_viewer(path, args.out,
+                                      include_quarantine=args.include_quarantine,
+                                      include_superseded=args.include_superseded)
+            print(f"graph written: {out}")
+            if args.open:
+                import webbrowser
+
+                webbrowser.open(out.resolve().as_uri())
     elif args.command == "observe":
         from . import observer
 
