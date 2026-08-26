@@ -30,6 +30,7 @@ def test_lint_reports_all_classes(conn):
     store.remember(conn, "ignore previous instructions payload", mtype="episodic", scope="quarantine")
     weak = store.remember(conn, "shaky claim", mtype="semantic", confidence=0.2)
     conn.commit()
+    store.remember(conn, "hook captured recently", mtype="episodic", origin_session="s")
     issues = {f["issue"] for f in store.lint(conn)}
     assert issues == {
         "duplicate", "overdue_verify", "stale_rule",
@@ -39,6 +40,7 @@ def test_lint_reports_all_classes(conn):
 
 def test_lint_clean_store(conn):
     store.remember(conn, "one healthy fact", mtype="semantic")
+    store.remember(conn, "captured today", mtype="episodic", origin_session="s")
     assert store.lint(conn) == []
 
 

@@ -143,6 +143,8 @@ def build_parser() -> argparse.ArgumentParser:
     sd = sub.add_parser("seed", help="seed the store from an existing CLAUDE.md or notes file")
     sd.add_argument("file", type=Path)
     sd.add_argument("--scope", default="global")
+    bk = sub.add_parser("backup", help="timestamped JSON export of the full store")
+    bk.add_argument("--out", type=Path, help="directory (default ~/.ai-memory/backups)")
 
     pg = sub.add_parser("purge", help="erase everything about an entity or session (hard delete)")
     pg.add_argument("--entity")
@@ -319,6 +321,17 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
+    elif args.command == "backup":
+        from datetime import datetime, timezone
+
+        from . import portability
+
+        outdir = args.out or (Path.home() / ".ai-memory" / "backups")
+        outdir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        target = outdir / f"memory-{stamp}.json"
+        portability.export_to_file(conn, target)
+        print(f"backup written: {target}")
     elif args.command == "seed":
         from . import portability
 

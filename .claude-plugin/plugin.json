@@ -1,7 +1,7 @@
 {
   "name": "ai-memory",
   "description": "Persistent semantic, procedural, episodic and entity memory for Claude Code: automatic capture at session end, consolidation, and a compiled recall pack injected at session start.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "author": {
     "name": "DDM Solutions Ltd"
   }

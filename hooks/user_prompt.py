@@ -26,6 +26,8 @@ def main() -> int:
         from ai_memory import config, db, store
 
         cfg = config.load()
+        if config.is_excluded(cwd, cfg):
+            return 0
         conn = db.connect()
         context = store.turn_recall(
             conn, prompt, session_id=session_id,

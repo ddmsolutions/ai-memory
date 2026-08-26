@@ -28,6 +28,16 @@ Goal: after two weeks of real use, memory is present when needed (not just at se
 
 Honest exit condition: if after a month of dogfooding the store is not observably changing what the agent does, the answer is deletion, not tuning. Native context plus disciplined docs is a strong baseline; this project must beat it to earn its keep.
 
+Exit criteria, pre-committed 2026-08-26 (decision date 2026-10-07, six weeks of dogfooding):
+
+- KEEP: monthly benchmark (runs >= 2, harness_valid) shows memory-value delta >= 0.5 AND judged turn precision >= 0.6 over >= 20 judged traces.
+- UNINSTALL: delta < 0.3 OR precision < 0.4 at the decision date. Hooks come out; the CLI remains as an archive reader.
+- BETWEEN the bands: exactly ONE re-cut is permitted, re-measured after three further weeks. No second reprieve.
+- VALIDITY GATE: the experiment only counts if average capture inflow >= 5 memories/week and >= 20 traces were judged. Below that, the verdict is "not genuinely used": fix usage first, restart the clock once.
+- COST GUARD: weekly injected_tokens_estimate > 50k or recall_latency_ms > 500 counts as failing regardless of accuracy scores.
+
+These numbers bind future sessions: do not renegotiate them at the decision date; renegotiation IS the sunk-cost failure the premortem predicted.
+
 Build order (one feature branch each, in this sequence; foundations before features):
 
 ### Section 1: CI

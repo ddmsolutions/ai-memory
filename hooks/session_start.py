@@ -26,6 +26,8 @@ def main() -> int:
         from ai_memory import config, db, store
 
         cfg = config.load()
+        if config.is_excluded(cwd, cfg):
+            return 0
         conn = db.connect()
         pack = store.recall_pack(
             conn, scope=config.resolve_scope(cwd, cfg), cfg=cfg, session_id=session_id

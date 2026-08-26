@@ -95,6 +95,8 @@ def main() -> int:
         from ai_memory import config, db, redact, store
 
         cfg = config.load()
+        if config.is_excluded(payload.get("cwd"), cfg):
+            return 0
         # Redact here so the dedup comparison below sees the stored form;
         # store.remember redacts again as the backstop for every other path.
         memos = [redact.redact(m, cfg["secret_patterns"])[0] for m in memos]

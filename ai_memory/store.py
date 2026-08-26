@@ -774,6 +774,22 @@ def lint(conn: sqlite3.Connection) -> list[dict]:
             # Never reprint hostile content in full: truncated and labelled.
             "detail": f"[UNTRUSTED, truncated] {row['content'][:80]}",
         })
+    last_capture = conn.execute(
+        "SELECT MAX(created_at) FROM memories WHERE origin_session IS NOT NULL"
+    ).fetchone()[0]
+    quiet_days = (
+        conn.execute("SELECT julianday('now') - julianday(?)", (last_capture,)).fetchone()[0]
+        if last_capture else None
+    )
+    if quiet_days is None or quiet_days > 7:
+        detail = (
+            f"no hook-captured memo for {quiet_days:.0f} days" if quiet_days
+            else "no hook-captured memo EVER"
+        )
+        findings.append({
+            "issue": "no_capture", "ids": "-",
+            "detail": detail + " - capture may be silently dead (fail-soft hides breakage)",
+        })
     for row in conn.execute(
         "SELECT id, content, confidence FROM v_active_memories"
         " WHERE type IN ('semantic','procedural') AND confidence < 0.4"
@@ -855,8 +871,28 @@ def scorecard(conn: sqlite3.Connection, days: int = 7) -> dict:
             " FROM recall_trace WHERE was_useful IS NOT NULL"
             " AND created_at >= datetime('now', ?) GROUP BY surface", (window,))
     }
+    import time as _time
+
+    last_capture = conn.execute(
+        "SELECT MAX(created_at) FROM memories WHERE origin_session IS NOT NULL"
+    ).fetchone()[0]
+    days_since_capture = (
+        round(conn.execute(
+            "SELECT julianday('now') - julianday(?)", (last_capture,)).fetchone()[0], 1)
+        if last_capture else None
+    )
+    injected_tokens = one(
+        "SELECT COALESCE(SUM(length(m.content)) / 4, 0) FROM injection_log il"
+        " JOIN memories m ON m.id = il.memory_id WHERE il.injected_at >= datetime('now', ?)",
+        window)
+    started = _time.perf_counter()
+    recall_pack(conn, cfg=config.load())  # sessionless: read-only probe
+    latency_ms = round((_time.perf_counter() - started) * 1000, 1)
     return {
         "period_days": int(days),
+        "days_since_last_capture": days_since_capture,
+        "injected_tokens_estimate": injected_tokens,
+        "recall_latency_ms": latency_ms,
         "injections": one(
             "SELECT COUNT(*) FROM injection_log WHERE injected_at >= datetime('now', ?)", window),
         "traces": one(

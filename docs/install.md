@@ -68,6 +68,7 @@ All tunables live in `~/.ai-memory/config.json` (override the path with `AI_MEMO
 | `embed_model` | nomic-embed-text | Embedding model name |
 | `embed_url` | http://localhost:11434 | Ollama-compatible endpoint |
 | `scope_map` | `{}` | Absolute path prefix to scope slug |
+| `exclude_paths` | `[]` | Path prefixes where ALL hooks no-op (another memory system owns them) |
 | `secret_patterns` | `[]` | Extra redaction patterns `{label, regex}` |
 
 Note on the hook commands: they invoke `python`. On systems where only `python3` exists on PATH (stock macOS, many Linux distributions), edit the commands in `hooks/hooks.json` (or your settings.json wiring) accordingly; a missing interpreter fails soft but the plugin is silently inactive.

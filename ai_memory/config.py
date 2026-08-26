@@ -31,6 +31,7 @@ DEFAULTS: dict = {
     "link_prune_floor": 0.02,      # effective weight below this is pruned at decay
     "ambiguity_margin": 0.15,      # candidates within this of top score are flagged ambiguous
     "scope_map": {},               # {"<absolute path prefix>": "<scope slug>"}
+    "exclude_paths": [],           # absolute path prefixes where all hooks no-op entirely
     "secret_patterns": [],         # [{"label": str, "regex": str}] extra redactions
 }
 
@@ -55,6 +56,26 @@ def _compatible(value, default) -> bool:
             and value >= 0
         )
     return isinstance(value, type(default))
+
+
+def is_excluded(cwd: str | None, cfg: dict) -> bool:
+    """Boundary rule: directories under an excluded prefix are served by some
+    other memory system; every hook no-ops there (no capture, no injection)."""
+    excludes = cfg.get("exclude_paths") or []
+    if not cwd or not excludes:
+        return False
+    try:
+        current = os.path.normcase(str(Path(cwd).resolve()))
+    except Exception:
+        return False
+    for prefix in excludes:
+        try:
+            root = os.path.normcase(str(Path(prefix).resolve()))
+        except Exception:
+            continue
+        if current == root or current.startswith(root + os.sep):
+            return True
+    return False
 
 
 def resolve_scope(cwd: str | None, cfg: dict) -> str:

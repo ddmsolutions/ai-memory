@@ -57,6 +57,10 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 - **FR-G3** `entity link` MUST upsert a typed weighted edge on (src, dst, rel), auto-creating missing endpoint entities, optionally citing an evidence memory.
 - **FR-G4** `entity show` MUST render the node with its relationships in both directions, ordered by weight; a human-readable joined view (`v_edges_named`) MUST exist for inspection.
 
+- **FR-O6** (shipped 2026-08-26) Hooks MUST no-op entirely (no capture, no injection, no store I/O) when the session cwd falls under a configured `exclude_paths` prefix; directories excluded there are served by another memory system.
+- **FR-O7** (shipped 2026-08-26) Before applying any migration to an existing store, the runner MUST checkpoint and snapshot the file to `<db>.v<from>.bak`; a `backup` command exports a timestamped JSON to a backups directory.
+- **FR-O8** (shipped 2026-08-26) The scorecard MUST report liveness and cost telemetry (days since last capture, injected token estimate, recall latency), and lint MUST flag capture silence beyond 7 days, because fail-soft hides breakage.
+
 ### Graph viewer (FR-G5..G8, v0.7 draft)
 
 - **FR-G5** `graph` MUST generate a single self-contained HTML viewer: graph JSON embedded, JS library vendored (no CDN, no network); the file opens offline and never transmits store content.

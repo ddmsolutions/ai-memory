@@ -255,8 +255,29 @@ def _already_applied(conn: sqlite3.Connection, statement: str) -> bool:
     return column in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
 
 
+def _snapshot_before_migration(conn: sqlite3.Connection, version: int) -> None:
+    """Premortem hardening: an existing store is copied aside before any
+    migration touches it. One .bak per source version; fresh inits skip."""
+    try:
+        db_file = conn.execute("PRAGMA database_list").fetchone()[2]
+        if not db_file:
+            return
+        source = Path(db_file)
+        if not source.exists():
+            return
+        conn.execute("PRAGMA wal_checkpoint(FULL)")
+        import shutil
+
+        shutil.copy2(source, source.with_name(source.name + f".v{version}.bak"))
+    except Exception:
+        pass  # a failed snapshot must not block the session (hooks fail soft)
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
+    pending = any(target > version for target in MIGRATIONS) if version else False
+    if version >= 1 and pending:
+        _snapshot_before_migration(conn, version)
     if version == 0:
         # Fresh store, or a pre-versioning v0.1 store: the baseline DDL is
         # idempotent either way.

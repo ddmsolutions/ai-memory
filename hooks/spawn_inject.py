@@ -33,6 +33,8 @@ def main() -> int:
         from ai_memory import config, db, store
 
         cfg = config.load()
+        if config.is_excluded(payload.get("cwd"), cfg):
+            return 0
         limit = int(cfg["spawn_pack_limit"])
         if limit <= 0:
             return 0

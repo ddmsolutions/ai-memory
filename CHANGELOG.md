@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.5.1 - 2026-08-26
+
+Premortem hardening: the four most probable deaths defused.
+
+### Added
+- Numeric exit criteria pre-committed in plan.md (value, precision, validity, cost bands; decision date 2026-10-07); renegotiating them is the named failure mode (#48)
+- Scorecard telemetry: days_since_last_capture, injected token estimate, recall latency (read-only probe); lint flags capture silence over 7 days, fail-soft can no longer hide a dead pipeline invisibly (#48)
+- Funnel-coverage architectural test: any new INSERT path into an injectable table outside the approved redact+screen funnels fails CI (#49)
+- Pre-migration auto-snapshot (`<db>.v<from>.bak`) + `backup` command (timestamped JSON export) (#50)
+- `exclude_paths`: hooks no-op entirely under configured prefixes; the workspace boundary decision is enforceable config, not convention (#51)
+
 ## v0.5.0 - 2026-08-26
 
 The proof release: measure whether Claude Code is actually better with this memory.
