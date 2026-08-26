@@ -33,6 +33,7 @@
   <label><input type="checkbox" class="kindf" value="procedural" checked> procedural</label>
   <label><input type="checkbox" class="kindf" value="episodic" checked> episodic</label>
   <label><input type="checkbox" class="kindf" value="entity" checked> entities</label>
+  <label><input type="checkbox" class="kindf" value="role" checked> roles</label>
   <h4>Scope</h4>
   <select id="scopef"><option value="">all scopes</option></select>
   <h4>Relation</h4>
@@ -63,7 +64,7 @@ const MODE = "__MODE__";
 const EMBEDDED = __DATA__;
 
 const COLORS = { semantic: "#4ea1ff", procedural: "#3ecf8e", episodic: "#c9a227",
-                 entity: "#b07ce8", cluster: "#5c6b7a", quarantined: "#ff5c33" };
+                 entity: "#b07ce8", role: "#2bb3a3", cluster: "#5c6b7a", quarantined: "#ff5c33" };
 
 function esc(s) { return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
 function humanise(r) { return String(r || "").replace(/_/g, " "); }
@@ -151,7 +152,7 @@ function boot(data) {
     if (l.weight_raw === undefined) return l.weight;
     return l.weight_raw * (1 / (1 + (l.age_days + scrubDays) / data.link_half_life_days));
   }
-  function nodeKind(n) { return n.kind === "cluster" ? "cluster" : n.kind === "entity" ? "entity" : n.type; }
+  function nodeKind(n) { return n.kind === "cluster" ? "cluster" : n.kind === "entity" ? (n.type === "role" ? "role" : "entity") : n.type; }
   function egoSet() {
     if (!ego) return null;
     let frontier = new Set([ego]), seen = new Set([ego]);

@@ -232,6 +232,49 @@ def purge_subject(
     return report
 
 
+def add_role(
+    conn: sqlite3.Connection,
+    holder: str,
+    title: str,
+    org: str | None = None,
+) -> int:
+    """#57: roles are first-class nodes, not edge labels. Creates the role
+    entity (etype role), holder -holds-> role, and role -at-> org when given."""
+    if not _valid_entity_name(title):
+        raise ValueError(f"invalid role title: {title!r}")
+    role_name = f"{title} @ {org}" if org else title
+    role_id = add_entity(conn, role_name, etype="role")
+    link(conn, holder, role_name, rel="holds")
+    if org:
+        link(conn, role_name, org, rel="at")
+    return role_id
+
+
+def reify_edge(conn: sqlite3.Connection, src: str, rel: str, dst: str) -> int:
+    """Convert an existing edge into a per-instance role node: the edge
+    (src -rel-> dst) becomes src -has_role-> [rel: src + dst] -with-> dst.
+    Per-instance naming keeps who-with-whom distinct across couples/pairs."""
+    src_ent, dst_ent = find_entity(conn, src), find_entity(conn, dst)
+    if src_ent is None or dst_ent is None:
+        raise ValueError(f"unknown entity: {src if src_ent is None else dst}")
+    edge = conn.execute(
+        "SELECT 1 FROM edges WHERE src = ? AND dst = ? AND rel = ?",
+        (src_ent["id"], dst_ent["id"], rel),
+    ).fetchone()
+    if edge is None:
+        raise ValueError(f"no edge {src} -{rel}-> {dst}")
+    role_name = f"{rel.replace('_', ' ')}: {src_ent['name']} + {dst_ent['name']}"
+    role_id = add_entity(conn, role_name, etype="role")
+    link(conn, src_ent["name"], role_name, rel="has_role")
+    link(conn, role_name, dst_ent["name"], rel="with")
+    conn.execute(
+        "DELETE FROM edges WHERE src = ? AND dst = ? AND rel = ?",
+        (src_ent["id"], dst_ent["id"], rel),
+    )
+    conn.commit()
+    return role_id
+
+
 def task_neighbourhood(conn: sqlite3.Connection, task: str, cap: int) -> list[str]:
     """FR-N3: graph lines for entities the task mentions, budget-capped.
     Entity match is name-substring against the task, so multi-word names work."""

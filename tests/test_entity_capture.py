@@ -107,3 +107,37 @@ def test_extractor_skipped_for_quarantined_promotion(tmp_path):
     autoconsolidate.run(path, cfg=CFG, distiller=distiller, entity_extractor=extractor)
     conn = db.connect(path)
     assert graph.find_entity(conn, "ShouldNotExist") is None
+
+
+# --- #57 reified role nodes ---
+
+def test_add_role_with_org(conn):
+    graph.add_entity(conn, "Richard Danks", etype="person")
+    graph.add_entity(conn, "FlokJobs", etype="org")
+    graph.add_role(conn, "Richard Danks", "NED", org="FlokJobs")
+    role = graph.find_entity(conn, "NED @ FlokJobs")
+    assert role["etype"] == "role"
+    ns = {(n["rel"], n["other"]) for n in graph.neighbours(conn, "NED @ FlokJobs")}
+    assert ("holds", "Richard Danks") in ns and ("at", "FlokJobs") in ns
+
+
+def test_add_role_standalone_and_invalid(conn):
+    graph.add_entity(conn, "Donna", etype="person")
+    graph.add_role(conn, "Donna", "School Governor")
+    assert graph.find_entity(conn, "School Governor")["etype"] == "role"
+    with pytest.raises(ValueError):
+        graph.add_role(conn, "Donna", "ab")
+
+
+def test_reify_edge_round_trip(conn):
+    graph.add_entity(conn, "Richard", etype="person")
+    graph.add_entity(conn, "Donna", etype="person")
+    graph.link(conn, "Richard", "Donna", rel="married_to")
+    graph.reify_edge(conn, "Richard", "married_to", "Donna")
+    role = graph.find_entity(conn, "married to: Richard + Donna")
+    assert role is not None and role["etype"] == "role"
+    rels = {(n["rel"], n["other"]) for n in graph.neighbours(conn, "Richard")}
+    assert ("married_to", "Donna") not in rels        # original edge gone
+    assert ("has_role", "married to: Richard + Donna") in rels
+    with pytest.raises(ValueError):
+        graph.reify_edge(conn, "Richard", "married_to", "Donna")  # already gone

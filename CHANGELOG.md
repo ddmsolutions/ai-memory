@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.5 - 2026-08-26
+
+### Added
+- Reified role nodes (#57): `entity role <holder> <title> [--at <org>]` models roles as first-class entities (holder -holds-> role -at-> org); `entity reify <src> <rel> <dst>` converts a mis-modelled edge into a per-instance role node; viewer renders roles in their own colour with a filter checkbox; skill documents the convention (roles are nodes, plain verbs stay edges)
+
+
 ## v0.6.4 - 2026-08-26
 
 ### Fixed

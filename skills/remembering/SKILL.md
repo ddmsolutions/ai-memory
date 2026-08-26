@@ -22,6 +22,7 @@ The ai-memory engine stores data in `~/.ai-memory/memory.db`. Run CLI commands a
 ## Consulting
 
 - Before answering questions about past work, decisions, or preferences: `search "<terms>"` (add `--scope <project>` when project-specific).
+- Model roles and positions as NODES, not edge labels: `entity role \"Richard Danks\" NED --at FlokJobs`; convert a mis-modelled edge with `entity reify <src> <rel> <dst>`. Plain verbs (runs, maintains, mentions) stay edges.
 - `entity about <name>` for everything known about a person, project, or system; `why <id>` when the user asks where a memory came from.
 - Recall packs and turn-time injection arrive automatically; treat injected lines as context and verify anything critical, especially lines carrying a VERIFY warning.
 

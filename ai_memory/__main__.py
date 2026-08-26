@@ -124,6 +124,14 @@ def build_parser() -> argparse.ArgumentParser:
     eab = esub.add_parser("about", help="everything we know about an entity")
     eab.add_argument("name")
     esub.add_parser("backfill", help="mention-link existing memories via their entities: lines")
+    erl = esub.add_parser("role", help="role as a first-class node: holder -holds-> role [-at-> org]")
+    erl.add_argument("holder")
+    erl.add_argument("title")
+    erl.add_argument("--at", dest="org")
+    erf = esub.add_parser("reify", help="convert an edge into a per-instance role node")
+    erf.add_argument("src")
+    erf.add_argument("rel")
+    erf.add_argument("dst")
 
     sub.add_parser("lint", help="store health: duplicates, overdue facts, stale rules, contradictions, quarantine")
     sc = sub.add_parser("scorecard", help="weekly dogfood scorecard (read-only)")
@@ -355,6 +363,20 @@ def main(argv: list[str] | None = None) -> int:
         elif args.entity_command == "mention":
             graph.mention(conn, args.memory_id, args.name, etype=args.etype)
             print(f"memory #{args.memory_id} mentions {args.name}")
+        elif args.entity_command == "role":
+            try:
+                graph.add_role(conn, args.holder, args.title, org=args.org)
+            except ValueError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
+            print(f"{args.holder} -holds-> {args.title}" + (f" @ {args.org}" if args.org else ""))
+        elif args.entity_command == "reify":
+            try:
+                graph.reify_edge(conn, args.src, args.rel, args.dst)
+            except ValueError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
+            print(f"reified: {args.src} -has_role-> [{args.rel}] -with-> {args.dst}")
         elif args.entity_command == "backfill":
             print(json.dumps(graph.backfill_mentions(conn)))
         elif args.entity_command == "about":
