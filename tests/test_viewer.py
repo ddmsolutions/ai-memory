@@ -123,3 +123,12 @@ def test_serve_live_localhost_read_only(tmp_path, conn):
             urllib.request.urlopen(f"http://127.0.0.1:{port}/etc/passwd")
     finally:
         server.shutdown()
+
+
+def test_p3_controls_and_features_present(conn):
+    html = viewer.build_html(viewer.export_graph_json(conn, cfg=CFG))
+    for marker in ('id="nlabels"', 'id="elabels"', 'id="flowf"', 'id="clusters"',
+                   "function humanise", "buildClusterList", "applyFlow", "onRenderFramePost"):
+        assert marker in html, marker
+    # humanised rels render with spaces, canvas labels never as HTML markup
+    assert 'replace(/_/g, " ")' in html

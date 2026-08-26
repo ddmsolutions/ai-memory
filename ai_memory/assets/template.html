@@ -46,6 +46,12 @@
   <input type="text" id="search" placeholder="find and centre (Enter)">
   <div id="supwrap" style="display:none"><h4>Overlays</h4>
     <label><input type="checkbox" id="supf"> supersession chains</label></div>
+  <h4>Labels + layout</h4>
+  <label><input type="checkbox" id="nlabels"> node labels</label>
+  <label><input type="checkbox" id="elabels"> edge labels</label>
+  <label><input type="checkbox" id="flowf"> flow view LHS to RHS (ego)</label>
+  <h4>Clusters</h4>
+  <div id="clusters"></div>
   <h4>Decay scrubber <span id="tval" class="hint">t+0d</span></h4>
   <input type="range" id="scrub" min="0" max="180" step="5" value="0">
   <p class="hint">Click a node: ego view (click again: +1 hop, Esc: reset).</p>
@@ -57,9 +63,11 @@ const MODE = "__MODE__";
 const EMBEDDED = __DATA__;
 
 const COLORS = { semantic: "#4ea1ff", procedural: "#3ecf8e", episodic: "#c9a227",
-                 entity: "#b07ce8", quarantined: "#ff5c33" };
+                 entity: "#b07ce8", cluster: "#5c6b7a", quarantined: "#ff5c33" };
 
 function esc(s) { return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+function humanise(r) { return String(r || "").replace(/_/g, " "); }
+function short(s, n = 24) { s = String(s || ""); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
 
 function boot(data) {
   const byId = new Map(data.nodes.map(n => [n.id, n]));
@@ -78,26 +86,83 @@ function boot(data) {
   scopes.forEach(s => scopeSel.add(new Option(s, s)));
   const rels = [...new Set(data.links.map(l => l.rel))].sort();
   const relSel = document.getElementById("relf");
-  rels.forEach(r => relSel.add(new Option(r, r)));
+  rels.forEach(r => relSel.add(new Option(humanise(r), r)));
   if (data.nodes.some(n => n.superseded)) document.getElementById("supwrap").style.display = "block";
+
+  // connected components -> collapsible clusters
+  const comp = new Map();
+  let compCount = 0;
+  data.nodes.forEach(seed => {
+    if (comp.has(seed.id)) return;
+    const queue = [seed.id];
+    comp.set(seed.id, compCount);
+    while (queue.length) {
+      const id = queue.pop();
+      adj.get(id)?.forEach(m => { if (!comp.has(m)) { comp.set(m, compCount); queue.push(m); } });
+    }
+    compCount++;
+  });
+  const compMembers = new Map();
+  data.nodes.forEach(n => {
+    const c = comp.get(n.id);
+    if (!compMembers.has(c)) compMembers.set(c, []);
+    compMembers.get(c).push(n);
+  });
+  const degree = id => (adj.get(id)?.size) || 0;
+  const repOf = new Map();
+  compMembers.forEach((ns, c) => {
+    let best = ns[0];
+    ns.forEach(n => { if (degree(n.id) > degree(best.id)) best = n; });
+    repOf.set(c, best.label);
+  });
+  const collapsed = new Set();
+  const metaCache = new Map();
+
+  function buildClusterList() {
+    const div = document.getElementById("clusters");
+    const entries = [...compMembers.entries()].filter(e => e[1].length >= 3)
+      .sort((a, b) => b[1].length - a[1].length).slice(0, 15);
+    div.innerHTML = "";
+    if (!entries.length) { div.innerHTML = '<span class="hint">no clusters of 3+</span>'; return; }
+    const top = document.createElement("div");
+    top.className = "hint";
+    const ca = document.createElement("a"); ca.href = "#"; ca.textContent = "collapse all";
+    const ea = document.createElement("a"); ea.href = "#"; ea.textContent = "expand all";
+    ca.addEventListener("click", e => { e.preventDefault(); entries.forEach(en => collapsed.add(en[0])); buildClusterList(); refresh(); });
+    ea.addEventListener("click", e => { e.preventDefault(); collapsed.clear(); buildClusterList(); refresh(); });
+    top.appendChild(ca); top.appendChild(document.createTextNode("  ")); top.appendChild(ea);
+    div.appendChild(top);
+    entries.forEach(([c, ns]) => {
+      const lab = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = collapsed.has(c);
+      cb.addEventListener("change", () => { cb.checked ? collapsed.add(c) : collapsed.delete(c); refresh(); });
+      lab.appendChild(cb);
+      lab.appendChild(document.createTextNode(" " + short(repOf.get(c), 22) + " (" + ns.length + ")"));
+      div.appendChild(lab);
+    });
+  }
+  buildClusterList();
 
   let ego = null, egoHops = 1, scrubDays = 0;
 
   function linkEff(l) {
+    if (l._agg) return l.weight;
     if (l.weight_raw === undefined) return l.weight;
     return l.weight_raw * (1 / (1 + (l.age_days + scrubDays) / data.link_half_life_days));
   }
-  function nodeKind(n) { return n.kind === "entity" ? "entity" : n.type; }
+  function nodeKind(n) { return n.kind === "cluster" ? "cluster" : n.kind === "entity" ? "entity" : n.type; }
   function egoSet() {
     if (!ego) return null;
     let frontier = new Set([ego]), seen = new Set([ego]);
     for (let h = 0; h < egoHops; h++) {
       const next = new Set();
-      frontier.forEach(id => adj.get(id)?.forEach(n => { if (!seen.has(n)) { seen.add(n); next.add(n); } }));
+      frontier.forEach(id => adj.get(id)?.forEach(m => { if (!seen.has(m)) { seen.add(m); next.add(m); } }));
       frontier = next;
     }
     return seen;
   }
+
   function visible() {
     const kinds = new Set([...document.querySelectorAll(".kindf:checked")].map(c => c.value));
     const scope = scopeSel.value, rel = relSel.value;
@@ -105,25 +170,87 @@ function boot(data) {
     const from = document.getElementById("datefrom").value, to = document.getElementById("dateto").value;
     const showSup = document.getElementById("supf")?.checked;
     const focus = egoSet();
-    const nodes = data.nodes.filter(n =>
+    const kept = data.nodes.filter(n =>
       kinds.has(nodeKind(n)) &&
       (!scope || n.scope === scope || n.scope === "global" || n.kind === "entity") &&
       (!from || n.created >= from) && (!to || n.created <= to) &&
       (showSup || !n.superseded) &&
       (!focus || focus.has(n.id)));
-    const ids = new Set(nodes.map(n => n.id));
-    const links = data.links.filter(l =>
-      ids.has(l._s) && ids.has(l._t) &&
-      (!rel || l.rel === rel) &&
-      (l.kind === "supersedes" ? showSup : true) &&
-      linkEff(l) >= minW);
-    return { nodes, links };
+    const keptIds = new Set(kept.map(n => n.id));
+    const outNodes = [];
+    const metaNeeded = new Set();
+    kept.forEach(n => {
+      const c = comp.get(n.id);
+      if (collapsed.has(c)) metaNeeded.add(c); else outNodes.push(n);
+    });
+    metaNeeded.forEach(c => {
+      let m = metaCache.get(c);
+      if (!m) {
+        m = { id: "c" + c, kind: "cluster", comp: c, scope: "global", created: "", content: "" };
+        metaCache.set(c, m);
+      }
+      m.label = "cluster: " + short(repOf.get(c), 18);
+      m.count = (compMembers.get(c) || []).filter(n => keptIds.has(n.id)).length;
+      outNodes.push(m);
+    });
+    const idMap = id => {
+      if (!keptIds.has(id)) return null;
+      const c = comp.get(id);
+      return collapsed.has(c) ? "c" + c : id;
+    };
+    const outLinks = [];
+    const aggregated = new Map();
+    data.links.forEach(l => {
+      if (rel && l.rel !== rel) return;
+      if (l.kind === "supersedes" && !showSup) return;
+      if (linkEff(l) < minW) return;
+      const s = idMap(l._s), t = idMap(l._t);
+      if (!s || !t || s === t) return;
+      if (s[0] === "c" || t[0] === "c") {
+        const key = s + "|" + t + "|" + l.kind;
+        const existing = aggregated.get(key);
+        if (existing) { existing.count++; existing.weight = Math.max(existing.weight, linkEff(l)); }
+        else aggregated.set(key, { source: s, target: t, _s: s, _t: t, kind: l.kind,
+                                   rel: l.rel, weight: Math.max(0.2, linkEff(l)), count: 1, _agg: true });
+      } else outLinks.push(l);
+    });
+    aggregated.forEach(a => outLinks.push(a));
+    return { nodes: outNodes, links: outLinks };
+  }
+
+  function applyFlow(vis) {
+    data.nodes.forEach(n => { delete n.fx; delete n.fy; });
+    metaCache.forEach(m => { delete m.fx; delete m.fy; });
+    if (!ego || !document.getElementById("flowf").checked) return;
+    const present = new Set(vis.nodes.map(n => n.id));
+    if (!present.has(ego)) return;
+    const nadj = new Map();
+    vis.nodes.forEach(n => nadj.set(n.id, new Set()));
+    vis.links.forEach(l => { nadj.get(l._s)?.add(l._t); nadj.get(l._t)?.add(l._s); });
+    const depth = new Map([[ego, 0]]);
+    const queue = [ego];
+    while (queue.length) {
+      const id = queue.shift();
+      nadj.get(id)?.forEach(m => { if (!depth.has(m)) { depth.set(m, depth.get(id) + 1); queue.push(m); } });
+    }
+    const maxDepth = Math.max(0, ...depth.values());
+    const cols = new Map();
+    vis.nodes.forEach(n => {
+      const d = depth.has(n.id) ? depth.get(n.id) : maxDepth + 1;
+      if (!cols.has(d)) cols.set(d, []);
+      cols.get(d).push(n);
+    });
+    cols.forEach((ns, d) => {
+      ns.sort((a, b) => String(a.label).localeCompare(String(b.label)));
+      ns.forEach((n, i) => { n.fx = d * 200; n.fy = (i - (ns.length - 1) / 2) * 48; });
+    });
   }
 
   const graph = ForceGraph()(document.getElementById("graph"))
     .nodeId("id")
     .nodeLabel(n => esc(n.label))
-    .nodeVal(n => 3 + Math.sqrt(n.recall_count || 0) * 3 + (n.pinned ? 3 : 0))
+    .nodeVal(n => n.kind === "cluster" ? 4 + Math.sqrt(n.count || 1) * 3
+                  : 3 + Math.sqrt(n.recall_count || 0) * 3 + (n.pinned ? 3 : 0))
     .nodeColor(n => n.quarantined ? COLORS.quarantined : (COLORS[nodeKind(n)] || "#8b98a8"))
     .nodeCanvasObjectMode(n => (n.verify_overdue || n.quarantined) ? "before" : undefined)
     .nodeCanvasObject((n, ctx) => {
@@ -133,19 +260,47 @@ function boot(data) {
       ctx.setLineDash([2, 2]); ctx.lineWidth = 1.2; ctx.stroke(); ctx.setLineDash([]);
     })
     .linkWidth(l => Math.max(0.4, linkEff(l) * 4))
-    .linkLineDash(l => linkEff(l) < data.link_prune_floor * 3 ? [3, 3] : null)
+    .linkLineDash(l => !l._agg && linkEff(l) < data.link_prune_floor * 3 ? [3, 3] : null)
     .linkColor(l => l.kind === "mention" ? "#b07ce866" : l.kind === "edge" ? "#b07ce8aa"
                     : l.kind === "supersedes" ? "#e04545aa" : "#7d8b9c88")
     .onNodeClick(n => {
+      if (n.kind === "cluster") { collapsed.delete(n.comp); buildClusterList(); refresh(); return; }
       if (ego === n.id) { egoHops = Math.min(egoHops + 1, 4); } else { ego = n.id; egoHops = 1; }
       showDetail(n); refresh();
     })
-    .onBackgroundClick(() => { hideDetail(); });
+    .onBackgroundClick(() => { hideDetail(); })
+    .onRenderFramePost((ctx, gs) => {
+      const g = graph.graphData();
+      if (document.getElementById("nlabels").checked && (gs > 0.7 || g.nodes.length <= 60)) {
+        ctx.font = `${11 / gs}px sans-serif`;
+        ctx.fillStyle = "#c6cfda"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+        g.nodes.forEach(n => {
+          if (n.x === undefined) return;
+          const text = n.kind === "entity" || n.kind === "cluster" ? short(n.label, 26) : short(n.label, 20);
+          ctx.fillText(text, n.x + 10 / gs + 2, n.y);
+        });
+      }
+      if (document.getElementById("elabels").checked && gs > 0.9) {
+        ctx.font = `${9 / gs}px sans-serif`;
+        ctx.fillStyle = "#8b98a8"; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+        g.links.forEach(l => {
+          const s = l.source, t = l.target;
+          if (typeof s !== "object" || s.x === undefined || typeof t !== "object" || t.x === undefined) return;
+          const text = l._agg ? humanise(l.rel) + " x" + l.count : humanise(l.rel);
+          ctx.fillText(text, (s.x + t.x) / 2, (s.y + t.y) / 2 - 2 / gs);
+        });
+      }
+    });
 
-  function refresh() { graph.graphData(visible()); }
+  function refresh() { const vis = visible(); applyFlow(vis); graph.graphData(vis); }
 
   function showDetail(n) {
     const d = document.getElementById("detail");
+    if (n.kind === "cluster") {
+      d.innerHTML = `<b>${esc(n.label)}</b><div class="hint">${n.count} node(s) in view. Click the node to expand the cluster.</div>`;
+      d.style.display = "block";
+      return;
+    }
     const mentions = data.links.filter(l => l.kind === "mention" && (l._s === n.id || l._t === n.id))
       .map(l => byId.get(l._s === n.id ? l._t : l._s)?.label).filter(Boolean);
     d.innerHTML = `
@@ -170,6 +325,8 @@ function boot(data) {
   ["scopef", "relf", "datefrom", "dateto"].forEach(id =>
     document.getElementById(id).addEventListener("change", refresh));
   document.getElementById("supf")?.addEventListener("change", refresh);
+  ["nlabels", "elabels", "flowf"].forEach(id =>
+    document.getElementById(id).addEventListener("change", refresh));
   document.getElementById("weightf").addEventListener("input", e => {
     document.getElementById("wval").textContent = e.target.value; refresh();
   });

@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.6.3 - 2026-08-26
+
+### Added (viewer P3, #55)
+- Collapsible clusters: connected components listed with representative labels; collapse any into an aggregated meta-node (external links merged with counts), click to expand, collapse-all/expand-all
+- Flow view: with a node selected, a toggle lays the ego neighbourhood out in columns, primary node left, each hop one column right; force layout restored on exit
+- Label toggles: short node labels and humanised edge labels (married_to renders as married to), canvas-drawn and scale-aware so zoomed-out views stay readable
+
+
 ## v0.6.2 - 2026-08-26
 
 ### Fixed
