@@ -7,8 +7,13 @@ thing being measured.
 
 Question file format (JSON list):
   [{"id": "q1", "query": "staging database version",
-    "expect": "postgres 16", "scope": "optional-scope"}]
-`expect` is a case-insensitive substring the top-k results must contain.
+    "expect": "postgres 16", "scope": "optional-scope",
+    "surface": "search"}]
+`expect` is a case-insensitive substring the results must contain; `avoid`
+(instead of expect) passes when the substring does NOT surface, the negative
+question shape generated from not-useful feedback. `surface` is "search"
+(default, FTS/hybrid top-k) or "pack" (a sessionless recall-pack compile,
+which exercises the ranking tunables).
 """
 
 from __future__ import annotations
@@ -21,21 +26,38 @@ from pathlib import Path
 from . import store
 
 
-def run_eval(conn: sqlite3.Connection, questions: list[dict], k: int = 5) -> dict:
+def _judge(conn: sqlite3.Connection, q: dict, k: int, cfg: dict | None) -> tuple[bool, int | None, int]:
+    surface = q.get("surface", "search")
+    if surface == "pack":
+        pack = store.recall_pack(
+            conn, task=q["query"], scope=q.get("scope", "global"), cfg=cfg
+        ).lower()
+        if "avoid" in q:
+            return q["avoid"].lower() not in pack, None, pack.count("\n- ")
+        return q["expect"].lower() in pack, (1 if q["expect"].lower() in pack else None), pack.count("\n- ")
+    rows = store.search(conn, q["query"], scope=q.get("scope"), limit=k, cfg=cfg)
+    if "avoid" in q:
+        found = any(q["avoid"].lower() in r["content"].lower() for r in rows)
+        return not found, None, len(rows)
+    expect = q["expect"].lower()
+    rank = next(
+        (i for i, r in enumerate(rows, start=1) if expect in r["content"].lower()), None
+    )
+    return rank is not None, rank, len(rows)
+
+
+def run_eval(
+    conn: sqlite3.Connection, questions: list[dict], k: int = 5, cfg: dict | None = None
+) -> dict:
     results = []
     for q in questions:
-        rows = store.search(conn, q["query"], scope=q.get("scope"), limit=k)
-        expect = q["expect"].lower()
-        rank = next(
-            (i for i, r in enumerate(rows, start=1) if expect in r["content"].lower()),
-            None,
-        )
+        hit, rank, returned = _judge(conn, q, k, cfg)
         results.append({
             "id": q.get("id", q["query"][:40]),
             "query": q["query"],
-            "hit": rank is not None,
+            "hit": hit,
             "rank": rank,
-            "returned": len(rows),
+            "returned": returned,
         })
     n = len(results)
     hits = sum(1 for r in results if r["hit"])
@@ -50,6 +72,53 @@ def run_eval(conn: sqlite3.Connection, questions: list[dict], k: int = 5) -> dic
         "misses": [r["id"] for r in results if not r["hit"]],
         "results": results,
     }
+
+
+def grow_questions(conn: sqlite3.Connection, out_path: Path, days: int = 30) -> dict:
+    """FR-SL2: the eval set grows from real failures. Not-useful traces become
+    avoid-questions; re-explanations become expect-questions for the memory
+    that should have surfaced. Generated questions are deduped and reviewable
+    before joining the canonical set."""
+    out_path = Path(out_path)
+    existing: list[dict] = []
+    if out_path.exists():
+        existing = json.loads(out_path.read_text(encoding="utf-8"))
+    seen = {q["id"] for q in existing}
+    added = []
+    for trace in conn.execute(
+        "SELECT * FROM recall_trace WHERE was_useful = 0"
+        " AND created_at >= datetime('now', ?)", (f"-{int(days)} days",)
+    ):
+        qid = f"trace-{trace['id']}"
+        if qid in seen or not trace["cue"]:
+            continue
+        injected = json.loads(trace["injected"])
+        if not injected:
+            continue
+        row = conn.execute(
+            "SELECT content FROM memories WHERE id = ?", (injected[0],)
+        ).fetchone()
+        if row is None:
+            continue
+        added.append({
+            "id": qid, "query": trace["cue"], "avoid": row["content"][:40],
+            "surface": "search", "source": "not-useful feedback",
+        })
+        seen.add(qid)
+    for pair in store.detect_reexplanations(conn, days=days):
+        qid = f"reexp-{pair['old_id']}-{pair['new_id']}"
+        if qid in seen:
+            continue
+        terms = sorted(store._significant_terms(pair["new_content"]))[:8]
+        added.append({
+            "id": qid, "query": " ".join(terms), "expect": pair["old_content"][:40],
+            "surface": "search", "source": "re-explanation",
+        })
+        seen.add(qid)
+    if added:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(existing + added, indent=1), encoding="utf-8")
+    return {"added": len(added), "total": len(existing) + len(added), "path": str(out_path)}
 
 
 def run_eval_file(
