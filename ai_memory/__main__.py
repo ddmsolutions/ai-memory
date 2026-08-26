@@ -71,6 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
     gr.add_argument("--include-quarantine", action="store_true")
     gr.add_argument("--include-superseded", action="store_true")
     gr.add_argument("--serve", type=int, metavar="PORT", help="live mode: localhost server, refresh to see DB edits")
+    gr.add_argument("--scope", help="embed only this scope plus global (sharing safety)")
 
     ob = sub.add_parser("observe", help="self-maintenance: read health surfaces, draft the issues they imply")
     ob.add_argument("--post", action="store_true", help="post directly via gh (only honoured when config observer_post = direct)")
@@ -263,7 +264,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             out = viewer.write_viewer(path, args.out,
                                       include_quarantine=args.include_quarantine,
-                                      include_superseded=args.include_superseded)
+                                      include_superseded=args.include_superseded,
+                                      scope=args.scope)
             print(f"graph written: {out}")
             if args.open:
                 import webbrowser

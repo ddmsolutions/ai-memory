@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.6.0 - 2026-08-26
+
+The self-learning release, plus the visual graph. Third cold review before tagging: one blocker (distiller output unscreened) and seven findings fixed pre-release.
+
+### Added (self-learning, issues #41-#45)
+- `tune`: grid-search the ranking knobs against the eval set; adopt only non-degrading configs, `.prev` revert; grid contains only knobs an eval surface actually measures (FR-SL6)
+- Eval growth: not-useful traces become avoid-questions, the re-explanation detector (new memo near-duplicating an old memory = recall failure) becomes expect-questions + a `re_explained` lint finding; eval gains pack-surface and avoid scoring
+- `autoconsolidate`: gated hygiene (VACUUM INTO snapshot, pinned-preferring dedupe, stale triage, decay) + optional distiller whose output passes the deterministic instruction screen regardless of the model's certainty claim; regression on hit rate OR mrr restores the snapshot (WAL sidecars cleared)
+- Policy learning (schema v11): quarantine outcome labels (`policy release|hostile`), corpus validation compiled exactly as production screens compile, human-approved `policy adopt` into config-extendable instruction patterns
+- `observe`: health surfaces to issue drafts (draft-for-review default; direct posting needs config observer_post + observer_repo + the flag; gh failures fall back to drafts without duplication)
+
+### Added (visual graph, issues #46-#47)
+- `graph`: single self-contained offline HTML over both layers joined by mentions; vendored force-graph, zero network; ego focus with per-hop expansion; filters, search-and-centre, why detail panel; encodings: size by recall, thickness by time-decayed weight, dashed near prune floor, red halo past verify_by
+- `graph --serve`: localhost-only live mode; supersession-chain overlay; decay time scrubber sharing the engine formula (parity-tested); `--scope` export filter + embedded-scopes warning for sharing safety
+- All untrusted content escaped; embedded JSON <-escaped so content cannot break out of the script block
+
+
 ## v0.5.1 - 2026-08-26
 
 Premortem hardening: the four most probable deaths defused.

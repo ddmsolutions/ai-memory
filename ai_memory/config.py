@@ -35,6 +35,7 @@ DEFAULTS: dict = {
     "secret_patterns": [],         # [{"label": str, "regex": str}] extra redactions
     "instruction_patterns": [],    # [{"label": str, "regex": str}] extra injection screens
     "observer_post": "draft",      # self-maintenance output: draft | direct
+    "observer_repo": "",           # gh repo for direct posting; empty forces draft mode
 }
 
 

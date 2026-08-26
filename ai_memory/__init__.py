@@ -1,3 +1,3 @@
 """ai-memory: persistent semantic, procedural, episodic and entity memory for Claude Code."""
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"

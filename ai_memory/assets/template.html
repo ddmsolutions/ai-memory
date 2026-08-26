@@ -155,7 +155,7 @@ function boot(data) {
       <div class="content">${esc(n.content || "")}</div>
       <div class="hint">
         ${n.kind === "memory" ? `recalled ${n.recall_count} time(s) · confidence ${n.confidence}` : ""}
-        ${n.pinned ? " · pinned" : ""}${n.valence ? " · valence " + n.valence : ""}
+        ${n.pinned ? " · pinned" : ""}${n.valence ? " · valence " + esc(n.valence) : ""}
         ${n.verify_overdue ? " · <b>VERIFY overdue</b>" : ""}
         ${n.superseded ? " · superseded" : ""}
         ${n.promoted_from ? ` · distilled from m${n.promoted_from}` : ""}

@@ -23,19 +23,23 @@ Distiller = Callable[[str], tuple[str, str, bool] | None]
 
 def _hygiene(conn: sqlite3.Connection, cfg: dict, dry_run: bool) -> dict:
     actions = {"duplicates_superseded": 0, "stale_triaged": 0, "decayed": 0}
-    dup_groups = conn.execute(
-        "SELECT MAX(id) AS keeper, GROUP_CONCAT(id) AS ids FROM v_active_memories"
-        " GROUP BY type, scope, lower(content) HAVING COUNT(*) > 1"
-    ).fetchall()
-    for group in dup_groups:
-        ids = [int(x) for x in group["ids"].split(",") if int(x) != group["keeper"]]
+    groups: dict[tuple, list] = {}
+    for row in conn.execute("SELECT id, type, scope, content, pinned FROM v_active_memories"):
+        groups.setdefault((row["type"], row["scope"], row["content"].lower()), []).append(row)
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        # Keeper prefers pinned, then newest: a pinned fact must never be
+        # silently superseded by an unpinned duplicate (review finding).
+        keeper = max(members, key=lambda r: (r["pinned"], r["id"]))["id"]
+        losers = [r["id"] for r in members if r["id"] != keeper]
         if not dry_run:
-            qmarks = ",".join("?" * len(ids))
+            qmarks = ",".join("?" * len(losers))
             conn.execute(
                 f"UPDATE memories SET superseded_by = ? WHERE id IN ({qmarks})",
-                [group["keeper"], *ids],
+                [keeper, *losers],
             )
-        actions["duplicates_superseded"] += len(ids)
+        actions["duplicates_superseded"] += len(losers)
     stale = conn.execute(
         "SELECT id FROM v_active_memories WHERE type = 'semantic' AND verify_by IS NULL"
         " AND recall_count = 0 AND created_at < datetime('now', '-180 days')"
@@ -53,7 +57,11 @@ def _hygiene(conn: sqlite3.Connection, cfg: dict, dry_run: bool) -> dict:
     return actions
 
 
-def _distil(conn: sqlite3.Connection, distiller: Distiller | None, dry_run: bool) -> dict:
+def _distil(
+    conn: sqlite3.Connection, distiller: Distiller | None, cfg: dict, dry_run: bool
+) -> dict:
+    from . import redact
+
     result = {"promoted": 0, "quarantined": 0, "left": 0}
     if distiller is None:
         result["left"] = len(store.unconsolidated(conn))
@@ -64,12 +72,16 @@ def _distil(conn: sqlite3.Connection, distiller: Distiller | None, dry_run: bool
             result["left"] += 1
             continue
         mtype, content, certain = verdict
+        # Review blocker: distiller output is MODEL-GENERATED content and gets
+        # the deterministic instruction screen regardless of the model's own
+        # certainty claim; a screened hit is quarantined, never recallable.
+        if redact.screen_instructions(content, cfg.get("instruction_patterns")):
+            certain = False
         if dry_run:
             result["promoted" if certain else "quarantined"] += 1
             continue
         new_id = store.promote(conn, row["id"], mtype, content=content)
         if not certain:
-            # Uncertain promotions are reviewable, never recallable (FR-SL3).
             conn.execute("UPDATE memories SET scope = 'quarantine' WHERE id = ?", (new_id,))
             conn.commit()
             result["quarantined"] += 1
@@ -92,15 +104,17 @@ def run(
     snapshot = db_path.with_name(db_path.name + ".autoconsolidate.bak")
     conn = db.connect(db_path)
     if not dry_run:
-        conn.execute("PRAGMA wal_checkpoint(FULL)")
-        shutil.copy2(db_path, snapshot)
+        # VACUUM INTO writes a consistent point-in-time copy even with
+        # concurrent WAL writers (review finding: checkpoint+copy can tear).
+        snapshot.unlink(missing_ok=True)
+        conn.execute("VACUUM INTO ?", (str(snapshot),))
     baseline = evalharness.run_eval(conn, questions, k=k, cfg=cfg) if questions else None
 
     report = {
         "dry_run": dry_run,
         "snapshot": str(snapshot) if not dry_run else None,
         "hygiene": _hygiene(conn, cfg, dry_run),
-        "distillation": _distil(conn, distiller, dry_run),
+        "distillation": _distil(conn, distiller, cfg, dry_run),
         "reverted": False,
     }
 
@@ -108,8 +122,13 @@ def run(
         after = evalharness.run_eval(conn, questions, k=k, cfg=cfg)
         report["eval_before"] = {"hit_rate": baseline["hit_rate"], "mrr": baseline["mrr"]}
         report["eval_after"] = {"hit_rate": after["hit_rate"], "mrr": after["mrr"]}
-        if after["hit_rate"] < baseline["hit_rate"]:
+        # Same predicate as tune's adoption gate: NO metric may degrade.
+        if after["hit_rate"] < baseline["hit_rate"] or after["mrr"] < baseline["mrr"]:
             conn.close()
+            # Remove WAL sidecars before restoring, or newer frames would be
+            # replayed on top of the older restored main file.
+            for suffix in ("-wal", "-shm"):
+                Path(str(db_path) + suffix).unlink(missing_ok=True)
             shutil.copy2(snapshot, db_path)
             report["reverted"] = True
             return report

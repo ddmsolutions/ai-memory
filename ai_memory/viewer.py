@@ -31,6 +31,7 @@ def export_graph_json(
     cfg: dict | None = None,
     include_quarantine: bool = False,
     include_superseded: bool = False,
+    scope: str | None = None,
 ) -> dict:
     if cfg is None:
         cfg = config_mod.load()
@@ -40,13 +41,25 @@ def export_graph_json(
     links: list[dict] = []
     memory_ids: set[int] = set()
 
-    where = []
-    if not include_superseded:
-        where.append("superseded_by IS NULL")
-    if not include_quarantine:
-        where.append("scope <> 'quarantine'")
+    params: list = []
+    if not include_quarantine and not include_superseded:
+        # Default path reads through THE read-layer view: one predicate, one
+        # place (migration 8 rule); raw table only for explicit include flags.
+        source = "v_active_memories"
+        where = []
+    else:
+        source = "memories"
+        where = []
+        if not include_superseded:
+            where.append("superseded_by IS NULL")
+        if not include_quarantine:
+            where.append("scope <> 'quarantine'")
+    if scope:
+        where.append("scope IN (?, 'global', 'quarantine')" if include_quarantine
+                     else "scope IN (?, 'global')")
+        params.append(scope)
     clause = (" WHERE " + " AND ".join(where)) if where else ""
-    for m in conn.execute(f"SELECT * FROM memories{clause}"):
+    for m in conn.execute(f"SELECT * FROM {source}{clause}", params):
         memory_ids.add(m["id"])
         nodes.append({
             "id": f"m{m['id']}",
@@ -126,12 +139,17 @@ def write_viewer(
     out_path: Path,
     include_quarantine: bool = False,
     include_superseded: bool = False,
+    scope: str | None = None,
 ) -> Path:
     conn = db.connect(db_path)
     data = export_graph_json(
-        conn, include_quarantine=include_quarantine, include_superseded=include_superseded
+        conn, include_quarantine=include_quarantine,
+        include_superseded=include_superseded, scope=scope,
     )
     conn.close()
+    scopes = sorted({n.get("scope") for n in data["nodes"] if n.get("scope")})
+    print(f"embedding scopes: {', '.join(scopes) or 'none'}"
+          " - the file contains this memory content; share accordingly")
     out_path = Path(out_path)
     out_path.write_text(build_html(data), encoding="utf-8")
     return out_path

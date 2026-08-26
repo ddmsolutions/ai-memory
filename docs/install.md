@@ -67,6 +67,9 @@ All tunables live in `~/.ai-memory/config.json` (override the path with `AI_MEMO
 | `embed_enabled` | false | Optional semantic search layer (local model, fail-soft) |
 | `embed_model` | nomic-embed-text | Embedding model name |
 | `embed_url` | http://localhost:11434 | Ollama-compatible endpoint |
+| `instruction_patterns` | `[]` | Extra injection screens `{label, regex}` (adopt via `policy adopt`) |
+| `observer_post` | draft | Self-maintenance output: draft or direct |
+| `observer_repo` | (empty) | gh repo for direct posting; empty forces drafts |
 | `scope_map` | `{}` | Absolute path prefix to scope slug |
 | `exclude_paths` | `[]` | Path prefixes where ALL hooks no-op (another memory system owns them) |
 | `secret_patterns` | `[]` | Extra redaction patterns `{label, regex}` |

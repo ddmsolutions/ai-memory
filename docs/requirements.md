@@ -61,7 +61,7 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 - **FR-O7** (shipped 2026-08-26) Before applying any migration to an existing store, the runner MUST checkpoint and snapshot the file to `<db>.v<from>.bak`; a `backup` command exports a timestamped JSON to a backups directory.
 - **FR-O8** (shipped 2026-08-26) The scorecard MUST report liveness and cost telemetry (days since last capture, injected token estimate, recall latency), and lint MUST flag capture silence beyond 7 days, because fail-soft hides breakage.
 
-### Graph viewer (FR-G5..G8, v0.7 draft)
+### Graph viewer (FR-G5..G8, shipped 2026-08-26)
 
 - **FR-G5** `graph` MUST generate a single self-contained HTML viewer: graph JSON embedded, JS library vendored (no CDN, no network); the file opens offline and never transmits store content.
 - **FR-G6** The viewer MUST render both layers (entities + edges, memories + memory_links) joined by mentions, with semantic encodings: colour by kind, node size by recall count, edge thickness by time-decayed effective weight, dashed near the prune floor, verify_by overdue flagged.
@@ -126,7 +126,7 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 - **FR-D2** Subagent spawn MUST be able to inject a scoped recall pack into the spawned agent's context.
 - **FR-V1** An optional embedding layer MAY back `search` (local model, fail-soft, hybrid rank with FTS); absence changes nothing.
 
-### Self-learning (FR-SL, v0.6 draft; autonomy decisions pending, see epic)
+### Self-learning (FR-SL, shipped 2026-08-26; conservative autonomy defaults per epic #40)
 
 - **FR-SL1** A `tune` command MUST grid-search configured tunables (decay windows, half-lives, thresholds, caps) against the eval harness and benchmark, adopting a candidate config only when no tracked metric degrades (NFR-11 by construction); every adopted config is versioned and revertible.
 - **FR-SL2** The eval set MUST grow from real failures: a trace judged not-useful generates a labelled question, and a captured memo that near-duplicates an existing active memory MUST be detected as a recall failure, generating both an eval question and a lint finding.
@@ -178,7 +178,12 @@ Decomposed from `use-cases.md`. Every requirement is testable as written; MUST i
 | UC-35 Handoff memory | FR-W1..W3, NFR-1 | store.py, hooks/capture.py, CLI | backlog #35 | LIVE |
 | UC-37 A/B benchmark | FR-M5, NFR-11 | bench/ | v0.5 #37 | LIVE |
 | UC-38 Weekly scorecard | FR-M6, NFR-11 | store.py, CLI | v0.5 #38 | LIVE |
-| UC-44 Explore the graph visually | FR-G5..G8 | graphviz module + CLI | v0.7 | PLANNED |
+| UC-39 Self-tune | FR-SL1, NFR-11 | tuning.py, CLI | v0.6 #41 | LIVE |
+| UC-40 Eval growth | FR-SL2 | evalharness.py, store.py | v0.6 #42 | LIVE |
+| UC-41 Auto-consolidation | FR-SL3, FR-SL6 | autoconsolidate.py | v0.6 #43 | LIVE |
+| UC-42 Policy learning | FR-SL4, FR-SL6 | policy.py (schema v11) | v0.6 #44 | LIVE |
+| UC-43 Self-maintenance | FR-SL5, FR-SL6 | observer.py | v0.6 #45 | LIVE |
+| UC-44 Explore the graph visually | FR-G5..G8 | viewer.py + assets | v0.7 #46/#47 | LIVE |
 
 Cross-cutting NFRs (1, 3, 6, 7, 9, 10) apply to every section and are re-checked at each section's Definition of Done.
 

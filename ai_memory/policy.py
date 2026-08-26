@@ -46,7 +46,9 @@ def validate(conn: sqlite3.Connection, regex: str) -> dict:
     active (non-quarantine) rows and zero released false positives. Matching
     confirmed-hostile rows is the upside being bought."""
     try:
-        rx = re.compile(regex, re.I)
+        # Compile EXACTLY as the production screen does (_compile_extra: no
+        # flags), or validated coverage lies for case variants (review finding).
+        rx = re.compile(regex)
     except re.error as exc:
         return {"valid": False, "error": f"bad regex: {exc}"}
     fp_ids = {

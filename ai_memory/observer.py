@@ -82,24 +82,35 @@ def emit(drafts: list[dict], cfg: dict | None = None, drafts_dir: Path | None = 
          post_direct: bool = False) -> dict:
     if cfg is None:
         cfg = config.load()
-    mode = "direct" if (post_direct and cfg.get("observer_post") == "direct") else "draft"
-    written, posted = [], []
+    repo = cfg.get("observer_repo") or ""
+    mode = "direct" if (post_direct and cfg.get("observer_post") == "direct" and repo) else "draft"
+    posted: list[str] = []
+    to_draft = list(drafts)
     if mode == "direct":
-        for d in drafts:
-            proc = subprocess.run(
-                ["gh", "issue", "create", "-R", "ddmsolutions/ai-memory",
-                 "-t", d["title"], "-b", d["body"], "-l", "learning"],
-                capture_output=True, text=True,
-            )
-            (posted if proc.returncode == 0 else written).append(d["title"])
-        if not written:
-            return {"mode": mode, "posted": posted, "drafted": []}
-    target = drafts_dir or (Path.home() / ".ai-memory" / "drafts")
-    target.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
-    for d in drafts:
-        slug = re.sub(r"[^a-z0-9]+", "-", d["title"].lower())[:50].strip("-")
-        path = target / f"{stamp}-{slug}.md"
-        path.write_text(f"# {d['title']}\n\n{d['body']}\n", encoding="utf-8")
-        written.append(str(path))
+        remaining = []
+        for d in to_draft:
+            try:
+                proc = subprocess.run(
+                    ["gh", "issue", "create", "-R", repo,
+                     "-t", d["title"], "-b", d["body"], "-l", "learning"],
+                    capture_output=True, text=True,
+                )
+                ok = proc.returncode == 0
+            except FileNotFoundError:
+                ok = False
+            if ok:
+                posted.append(d["title"])
+            else:
+                remaining.append(d)
+        to_draft = remaining  # only failures fall back to files: no duplicates
+    written: list[str] = []
+    if to_draft:
+        target = drafts_dir or (Path.home() / ".ai-memory" / "drafts")
+        target.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+        for d in to_draft:
+            slug = re.sub(r"[^a-z0-9]+", "-", d["title"].lower())[:50].strip("-")
+            path = target / f"{stamp}-{slug}.md"
+            path.write_text(f"# {d['title']}\n\n{d['body']}\n", encoding="utf-8")
+            written.append(str(path))
     return {"mode": mode, "posted": posted, "drafted": written}

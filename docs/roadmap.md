@@ -44,7 +44,7 @@ Everything below delivered except where marked; details in CHANGELOG.md.
 - Onboarding importer: seed a store from an existing CLAUDE.md or notes file
 - CONTRIBUTING.md once outside interest appears
 
-## v0.6 - self-learning (planned; epic on GitHub)
+## v0.6 - self-learning - SHIPPED 2026-08-26 (v0.6.0, with the v0.7 visual graph)
 
 The ladder, in build order: self-tuning parameters, self-generating evals, gated autonomous consolidation, self-maintenance observer, policy learning. Governing rule (FR-SL6): every loop is judged by a metric it cannot modify and is switched off if it does not move it. Two autonomy decisions pending with the owner: consolidation's write autonomy over live store content, and whether the observer posts issues unattended or drafts for review.
 

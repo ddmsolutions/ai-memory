@@ -15,7 +15,7 @@ A Claude Code plugin providing persistent memory in four stores: episodic, seman
 ## Layout
 
 ```
-ai_memory/        the engine: db.py (schema+migrations), store.py (memories, recall, intentions, links, handoffs, traces), graph.py (entities, mentions, purge), config.py, redact.py, embeddings.py, evalharness.py, portability.py, __main__.py (CLI)
+ai_memory/        the engine: db.py (schema+migrations), store.py (memories, recall, intentions, links, handoffs, traces), graph.py (entities, mentions, purge), config.py, redact.py, embeddings.py, evalharness.py, portability.py, tuning.py, autoconsolidate.py, policy.py, observer.py, viewer.py (+assets/), __main__.py (CLI)
 hooks/            hook scripts + hooks.json (SessionStart inject, UserPromptSubmit turn recall, Stop/SubagentStop capture, PreToolUse spawn inject)
 commands/         the /memory slash command
 skills/           the description-routed remembering skill

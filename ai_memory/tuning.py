@@ -15,9 +15,11 @@ from pathlib import Path
 from . import config, evalharness
 
 DEFAULT_GRID: dict[str, list] = {
+    # Only knobs an eval surface actually exercises (pack ordering + search).
+    # turn_recall_min_score is deliberately absent: no surface measures
+    # turn_recall yet, and adopting an unmeasured knob breaks FR-SL6.
     "recency_half_life_days": [15.0, 30.0, 60.0],
     "usage_saturation": [2.0, 3.0, 5.0],
-    "turn_recall_min_score": [0.0, 0.3],
     "pack_limit": [8, 12, 16],
 }
 
