@@ -131,7 +131,8 @@ def test_p3_controls_and_features_present(conn):
                    "function humanise", "buildClusterList", "applyFlow", "onRenderFramePost",
                    "barycenter", "orderBy(cols[d], cols[d - 1])",
                    'id="dirout"', 'id="dirin"', "linkDirectionalArrowLength", "dirNeighbours",
-                   'id="familyf"', "FAMILY_DELTA", "solveGenerations", "spouse adjacency"):
+                   'id="familyf"', "FAMILY_DELTA", "solveGenerations", "spouse adjacency",
+                   'id="colourm"', "function colourFor", "hueColor", "renderLegend"):
         assert marker in html, marker
     # humanised rels render with spaces, canvas labels never as HTML markup
     assert 'replace(/_/g, " ")' in html

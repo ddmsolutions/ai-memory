@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.9 - 2026-08-26
+
+### Added
+- Colour-by modes (#63): memory type (default), entity kind (etype palette, memories muted), scope, or a stable distinct colour per node (golden-angle hue hashing); live legend; quarantine red and cluster grey always override
+
+
 ## v0.6.8 - 2026-08-26
 
 ### Added

@@ -47,6 +47,14 @@
   <input type="text" id="search" placeholder="find and centre (Enter)">
   <div id="supwrap" style="display:none"><h4>Overlays</h4>
     <label><input type="checkbox" id="supf"> supersession chains</label></div>
+  <h4>Colour by</h4>
+  <select id="colourm">
+    <option value="type" selected>memory type</option>
+    <option value="etype">entity kind</option>
+    <option value="scope">scope</option>
+    <option value="node">each node</option>
+  </select>
+  <div id="legend" class="hint"></div>
   <h4>Labels + layout</h4>
   <label><input type="checkbox" id="nlabels"> node labels</label>
   <label><input type="checkbox" id="elabels"> edge labels</label>
@@ -68,6 +76,13 @@ const EMBEDDED = __DATA__;
 
 const COLORS = { semantic: "#4ea1ff", procedural: "#3ecf8e", episodic: "#c9a227",
                  entity: "#b07ce8", role: "#2bb3a3", cluster: "#5c6b7a", quarantined: "#ff5c33" };
+
+function hueColor(key, s = 65, l = 55) {
+  // stable golden-angle hue from a string: distinct, deterministic colours
+  let h = 0;
+  for (const ch of String(key)) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return `hsl(${Math.round((h % 1000) / 1000 * 360)}, ${s}%, ${l}%)`;
+}
 
 function esc(s) { return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
 function humanise(r) { return String(r || "").replace(/_/g, " "); }
@@ -253,6 +268,40 @@ function boot(data) {
     return l.weight_raw * (1 / (1 + (l.age_days + scrubDays) / data.link_half_life_days));
   }
   function nodeKind(n) { return n.kind === "cluster" ? "cluster" : n.kind === "entity" ? (n.type === "role" ? "role" : "entity") : n.type; }
+
+  function colourFor(n) {
+    if (n.quarantined) return COLORS.quarantined;
+    if (n.kind === "cluster") return COLORS.cluster;
+    const mode = document.getElementById("colourm").value;
+    if (mode === "etype") {
+      if (n.kind === "entity") return hueColor("etype:" + n.type);
+      return "#5b6672";  // memories muted: entities carry the distinction
+    }
+    if (mode === "scope") return hueColor("scope:" + (n.scope || "global"));
+    if (mode === "node") return hueColor("node:" + n.label);
+    return COLORS[nodeKind(n)] || "#8b98a8";
+  }
+
+  function renderLegend() {
+    const mode = document.getElementById("colourm").value;
+    const legend = document.getElementById("legend");
+    const swatch = (colour, text) =>
+      `<span style="color:${colour}">&#9679;</span> ${esc(text)}`;
+    let items = [];
+    if (mode === "type") {
+      items = ["semantic", "procedural", "episodic", "entity", "role"]
+        .map(k => swatch(COLORS[k], k));
+    } else if (mode === "etype") {
+      items = [...new Set(data.nodes.filter(n => n.kind === "entity").map(n => n.type))]
+        .sort().slice(0, 10).map(e => swatch(hueColor("etype:" + e), e));
+    } else if (mode === "scope") {
+      items = [...new Set(data.nodes.map(n => n.scope || "global"))]
+        .sort().slice(0, 10).map(s => swatch(hueColor("scope:" + s), s));
+    } else {
+      items = [swatch("#8b98a8", "one stable colour per node")];
+    }
+    legend.innerHTML = items.join("&nbsp; ");
+  }
   function egoSet() {
     if (!ego) return null;
     let frontier = new Set([ego]), seen = new Set([ego]);
@@ -380,7 +429,7 @@ function boot(data) {
     .nodeLabel(n => esc(n.label))
     .nodeVal(n => n.kind === "cluster" ? 4 + Math.sqrt(n.count || 1) * 3
                   : 3 + Math.sqrt(n.recall_count || 0) * 3 + (n.pinned ? 3 : 0))
-    .nodeColor(n => n.quarantined ? COLORS.quarantined : (COLORS[nodeKind(n)] || "#8b98a8"))
+    .nodeColor(n => colourFor(n))
     .nodeCanvasObjectMode(n => (n.verify_overdue || n.quarantined) ? "before" : undefined)
     .nodeCanvasObject((n, ctx) => {
       ctx.beginPath();
@@ -468,6 +517,8 @@ function boot(data) {
   document.getElementById("supf")?.addEventListener("change", refresh);
   ["nlabels", "elabels", "flowf", "familyf", "dirout", "dirin"].forEach(id =>
     document.getElementById(id).addEventListener("change", refresh));
+  document.getElementById("colourm").addEventListener("change", () => { renderLegend(); refresh(); });
+  renderLegend();
   document.getElementById("weightf").addEventListener("input", e => {
     document.getElementById("wval").textContent = e.target.value; refresh();
   });
