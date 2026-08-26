@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.4 - 2026-08-26
+
+### Fixed
+- Flow view lays out strict primary/secondary/tertiary columns and minimises edge crossings via deterministic Sugiyama barycenter sweeps (three alternating passes) instead of alphabetical column order (#56)
+
+
 ## v0.6.3 - 2026-08-26
 
 ### Added (viewer P3, #55)

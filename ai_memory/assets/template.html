@@ -234,15 +234,36 @@ function boot(data) {
       nadj.get(id)?.forEach(m => { if (!depth.has(m)) { depth.set(m, depth.get(id) + 1); queue.push(m); } });
     }
     const maxDepth = Math.max(0, ...depth.values());
-    const cols = new Map();
+    const cols = [];
     vis.nodes.forEach(n => {
       const d = depth.has(n.id) ? depth.get(n.id) : maxDepth + 1;
-      if (!cols.has(d)) cols.set(d, []);
-      cols.get(d).push(n);
+      (cols[d] = cols[d] || []).push(n);
     });
+    // Crossing minimisation: Sugiyama barycenter sweeps. Each column orders by
+    // the mean position of its neighbours in the adjacent column; three
+    // alternating passes converge well at this scale and stay deterministic.
+    cols.forEach(ns => ns && ns.sort((a, b) => String(a.label).localeCompare(String(b.label))));
+    const index = new Map();
+    const reindex = ns => ns.forEach((n, i) => index.set(n.id, i));
+    const bary = (n, colIds) => {
+      const neigh = [...(nadj.get(n.id) || [])].filter(id => colIds.has(id));
+      return neigh.length
+        ? neigh.reduce((sum, id) => sum + index.get(id), 0) / neigh.length
+        : Number.POSITIVE_INFINITY;
+    };
+    const orderBy = (target, reference) => {
+      if (!target || !reference) return;
+      reindex(reference);
+      const refIds = new Set(reference.map(m => m.id));
+      target.sort((a, b) => bary(a, refIds) - bary(b, refIds)
+        || String(a.label).localeCompare(String(b.label)));
+    };
+    for (let sweep = 0; sweep < 3; sweep++) {
+      for (let d = 1; d < cols.length; d++) orderBy(cols[d], cols[d - 1]);
+      for (let d = cols.length - 2; d >= 1; d--) orderBy(cols[d], cols[d + 1]);
+    }
     cols.forEach((ns, d) => {
-      ns.sort((a, b) => String(a.label).localeCompare(String(b.label)));
-      ns.forEach((n, i) => { n.fx = d * 200; n.fy = (i - (ns.length - 1) / 2) * 48; });
+      if (ns) ns.forEach((n, i) => { n.fx = d * 200; n.fy = (i - (ns.length - 1) / 2) * 48; });
     });
   }
 
