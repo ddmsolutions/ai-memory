@@ -51,6 +51,8 @@
   <label><input type="checkbox" id="nlabels"> node labels</label>
   <label><input type="checkbox" id="elabels"> edge labels</label>
   <label><input type="checkbox" id="flowf"> flow view LHS to RHS (ego)</label>
+  <label><input type="checkbox" id="dirout" checked> flow from (outgoing)</label>
+  <label><input type="checkbox" id="dirin" checked> flow to (incoming)</label>
   <h4>Clusters</h4>
   <div id="clusters"></div>
   <h4>Decay scrubber <span id="tval" class="hint">t+0d</span></h4>
@@ -73,12 +75,23 @@ function short(s, n = 24) { s = String(s || ""); return s.length > n ? s.slice(0
 function boot(data) {
   const byId = new Map(data.nodes.map(n => [n.id, n]));
   const adj = new Map(data.nodes.map(n => [n.id, new Set()]));
+  const adjOut = new Map(data.nodes.map(n => [n.id, new Set()]));
+  const adjIn = new Map(data.nodes.map(n => [n.id, new Set()]));
   data.links.forEach(l => {
     const s = typeof l.source === "object" ? l.source.id : l.source;
     const t = typeof l.target === "object" ? l.target.id : l.target;
     l._s = s; l._t = t;
     adj.get(s)?.add(t); adj.get(t)?.add(s);
+    adjOut.get(s)?.add(t); adjIn.get(t)?.add(s);
   });
+  const dirNeighbours = id => {
+    const out = document.getElementById("dirout").checked;
+    const inc = document.getElementById("dirin").checked;
+    const result = new Set();
+    if (out) adjOut.get(id)?.forEach(m => result.add(m));
+    if (inc) adjIn.get(id)?.forEach(m => result.add(m));
+    return result;
+  };
   document.getElementById("counts").textContent =
     `${data.counts.nodes} nodes, ${data.counts.links} links (${data.generated_at})`;
 
@@ -158,7 +171,7 @@ function boot(data) {
     let frontier = new Set([ego]), seen = new Set([ego]);
     for (let h = 0; h < egoHops; h++) {
       const next = new Set();
-      frontier.forEach(id => adj.get(id)?.forEach(m => { if (!seen.has(m)) { seen.add(m); next.add(m); } }));
+      frontier.forEach(id => dirNeighbours(id).forEach(m => { if (!seen.has(m)) { seen.add(m); next.add(m); } }));
       frontier = next;
     }
     return seen;
@@ -225,9 +238,14 @@ function boot(data) {
     if (!ego || !document.getElementById("flowf").checked) return;
     const present = new Set(vis.nodes.map(n => n.id));
     if (!present.has(ego)) return;
+    const out = document.getElementById("dirout").checked;
+    const inc = document.getElementById("dirin").checked;
     const nadj = new Map();
     vis.nodes.forEach(n => nadj.set(n.id, new Set()));
-    vis.links.forEach(l => { nadj.get(l._s)?.add(l._t); nadj.get(l._t)?.add(l._s); });
+    vis.links.forEach(l => {
+      if (out) nadj.get(l._s)?.add(l._t);
+      if (inc) nadj.get(l._t)?.add(l._s);
+    });
     const depth = new Map([[ego, 0]]);
     const queue = [ego];
     while (queue.length) {
@@ -285,6 +303,8 @@ function boot(data) {
     .linkLineDash(l => !l._agg && linkEff(l) < data.link_prune_floor * 3 ? [3, 3] : null)
     .linkColor(l => l.kind === "mention" ? "#b07ce866" : l.kind === "edge" ? "#b07ce8aa"
                     : l.kind === "supersedes" ? "#e04545aa" : "#7d8b9c88")
+    .linkDirectionalArrowLength(l => l.kind === "mention" ? 3 : 4.5)
+    .linkDirectionalArrowRelPos(0.92)
     .onNodeClick(n => {
       if (n.kind === "cluster") { collapsed.delete(n.comp); buildClusterList(); refresh(); return; }
       if (ego === n.id) { egoHops = Math.min(egoHops + 1, 4); } else { ego = n.id; egoHops = 1; }
@@ -347,7 +367,7 @@ function boot(data) {
   ["scopef", "relf", "datefrom", "dateto"].forEach(id =>
     document.getElementById(id).addEventListener("change", refresh));
   document.getElementById("supf")?.addEventListener("change", refresh);
-  ["nlabels", "elabels", "flowf"].forEach(id =>
+  ["nlabels", "elabels", "flowf", "dirout", "dirin"].forEach(id =>
     document.getElementById(id).addEventListener("change", refresh));
   document.getElementById("weightf").addEventListener("input", e => {
     document.getElementById("wval").textContent = e.target.value; refresh();

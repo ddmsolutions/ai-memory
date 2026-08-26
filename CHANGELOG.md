@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.6.6 - 2026-08-26
+
+### Added
+- Directional arrowheads on every link (edges src to dst, mentions memory to entity, associative links, supersession old to new) (#58)
+- Flow-from/flow-to toggles: ego traversal and the flow layout walk outgoing only, incoming only, both, or neither, so who-X-connects-to and who-connects-to-X are separable questions (#58)
+
+
 ## v0.6.5 - 2026-08-26
 
 ### Added

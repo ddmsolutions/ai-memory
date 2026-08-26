@@ -129,7 +129,8 @@ def test_p3_controls_and_features_present(conn):
     html = viewer.build_html(viewer.export_graph_json(conn, cfg=CFG))
     for marker in ('id="nlabels"', 'id="elabels"', 'id="flowf"', 'id="clusters"',
                    "function humanise", "buildClusterList", "applyFlow", "onRenderFramePost",
-                   "barycenter", "orderBy(cols[d], cols[d - 1])"):
+                   "barycenter", "orderBy(cols[d], cols[d - 1])",
+                   'id="dirout"', 'id="dirin"', "linkDirectionalArrowLength", "dirNeighbours"):
         assert marker in html, marker
     # humanised rels render with spaces, canvas labels never as HTML markup
     assert 'replace(/_/g, " ")' in html
