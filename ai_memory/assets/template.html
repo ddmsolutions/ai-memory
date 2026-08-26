@@ -51,6 +51,7 @@
   <label><input type="checkbox" id="nlabels"> node labels</label>
   <label><input type="checkbox" id="elabels"> edge labels</label>
   <label><input type="checkbox" id="flowf"> flow view LHS to RHS (ego)</label>
+  <label><input type="checkbox" id="familyf"> family view (generations)</label>
   <label><input type="checkbox" id="dirout" checked> flow from (outgoing)</label>
   <label><input type="checkbox" id="dirin" checked> flow to (incoming)</label>
   <h4>Clusters</h4>
@@ -92,6 +93,92 @@ function boot(data) {
     if (inc) adjIn.get(id)?.forEach(m => result.add(m));
     return result;
   };
+
+  // Family view (#62): generation levels by constraint propagation.
+  const FAMILY_DELTA = { parent_of: 1, grandparent_of: 2 };
+  const FAMILY_EQ = new Set(["married_to", "sibling_of"]);
+  const famLinks = data.links.filter(l =>
+    l.kind === "edge" && (l.rel in FAMILY_DELTA || FAMILY_EQ.has(l.rel)));
+  const familyIds = new Set();
+  famLinks.forEach(l => { familyIds.add(l._s); familyIds.add(l._t); });
+
+  function solveGenerations(ids) {
+    const level = new Map([...ids].map(id => [id, 0]));
+    for (let pass = 0; pass < 30; pass++) {
+      let changed = false;
+      famLinks.forEach(l => {
+        if (!level.has(l._s) || !level.has(l._t)) return;
+        if (FAMILY_EQ.has(l.rel)) {
+          const m = Math.max(level.get(l._s), level.get(l._t));
+          if (level.get(l._s) !== m) { level.set(l._s, m); changed = true; }
+          if (level.get(l._t) !== m) { level.set(l._t, m); changed = true; }
+        } else {
+          const d = FAMILY_DELTA[l.rel];
+          const wantChild = level.get(l._s) + d;
+          if (level.get(l._t) < wantChild) { level.set(l._t, wantChild); changed = true; }
+          const wantParent = level.get(l._t) - d;
+          if (level.get(l._s) < wantParent) { level.set(l._s, wantParent); changed = true; }
+        }
+      });
+      if (!changed) break;
+    }
+    const min = Math.min(...level.values());
+    level.forEach((v, k) => level.set(k, v - min));
+    return level;
+  }
+
+  function applyFamily(vis) {
+    const present = new Set(vis.nodes.map(n => n.id));
+    const ids = [...familyIds].filter(id => present.has(id));
+    if (!ids.length) return;
+    const level = solveGenerations(new Set(ids));
+    const cols = [];
+    vis.nodes.forEach(n => {
+      if (!level.has(n.id)) return;
+      const d = level.get(n.id);
+      (cols[d] = cols[d] || []).push(n);
+    });
+    cols.forEach(ns => ns && ns.sort((a, b) => String(a.label).localeCompare(String(b.label))));
+    // barycenter passes against the previous generation
+    const index = new Map();
+    const reindex = ns => ns.forEach((n, i) => index.set(n.id, i));
+    const famAdj = new Map();
+    famLinks.forEach(l => {
+      if (!famAdj.has(l._s)) famAdj.set(l._s, new Set());
+      if (!famAdj.has(l._t)) famAdj.set(l._t, new Set());
+      famAdj.get(l._s).add(l._t); famAdj.get(l._t).add(l._s);
+    });
+    for (let sweep = 0; sweep < 3; sweep++) {
+      for (let d = 1; d < cols.length; d++) {
+        if (!cols[d] || !cols[d - 1]) continue;
+        reindex(cols[d - 1]);
+        const refIds = new Set(cols[d - 1].map(m => m.id));
+        cols[d].sort((a, b) => {
+          const bc = n => {
+            const neigh = [...(famAdj.get(n.id) || [])].filter(id => refIds.has(id));
+            return neigh.length ? neigh.reduce((s, id) => s + index.get(id), 0) / neigh.length
+                                : Number.POSITIVE_INFINITY;
+          };
+          return bc(a) - bc(b) || String(a.label).localeCompare(String(b.label));
+        });
+      }
+    }
+    // spouse adjacency: married pairs sit together, equal footing
+    const married = famLinks.filter(l => l.rel === "married_to");
+    cols.forEach(ns => {
+      if (!ns) return;
+      married.forEach(l => {
+        const i = ns.findIndex(n => n.id === l._s);
+        const j = ns.findIndex(n => n.id === l._t);
+        if (i < 0 || j < 0 || Math.abs(i - j) === 1) return;
+        const [partner] = ns.splice(j, 1);
+        ns.splice(ns.findIndex(n => n.id === l._s) + 1, 0, partner);
+      });
+    });
+    cols.forEach((ns, d) => {
+      if (ns) ns.forEach((n, i) => { n.fx = d * 220; n.fy = (i - (ns.length - 1) / 2) * 52; });
+    });
+  }
   document.getElementById("counts").textContent =
     `${data.counts.nodes} nodes, ${data.counts.links} links (${data.generated_at})`;
 
@@ -184,7 +271,9 @@ function boot(data) {
     const from = document.getElementById("datefrom").value, to = document.getElementById("dateto").value;
     const showSup = document.getElementById("supf")?.checked;
     const focus = egoSet();
+    const familyOn = document.getElementById("familyf").checked;
     const kept = data.nodes.filter(n =>
+      (!familyOn || familyIds.has(n.id)) &&
       kinds.has(nodeKind(n)) &&
       (!scope || n.scope === scope || n.scope === "global" || n.kind === "entity") &&
       (!from || n.created >= from) && (!to || n.created <= to) &&
@@ -334,7 +423,17 @@ function boot(data) {
       }
     });
 
-  function refresh() { const vis = visible(); applyFlow(vis); graph.graphData(vis); }
+  function refresh() {
+    const vis = visible();
+    if (document.getElementById("familyf").checked) {
+      data.nodes.forEach(n => { delete n.fx; delete n.fy; });
+      metaCache.forEach(m => { delete m.fx; delete m.fy; });
+      applyFamily(vis);
+    } else {
+      applyFlow(vis);
+    }
+    graph.graphData(vis);
+  }
 
   function showDetail(n) {
     const d = document.getElementById("detail");
@@ -367,7 +466,7 @@ function boot(data) {
   ["scopef", "relf", "datefrom", "dateto"].forEach(id =>
     document.getElementById(id).addEventListener("change", refresh));
   document.getElementById("supf")?.addEventListener("change", refresh);
-  ["nlabels", "elabels", "flowf", "dirout", "dirin"].forEach(id =>
+  ["nlabels", "elabels", "flowf", "familyf", "dirout", "dirin"].forEach(id =>
     document.getElementById(id).addEventListener("change", refresh));
   document.getElementById("weightf").addEventListener("input", e => {
     document.getElementById("wval").textContent = e.target.value; refresh();

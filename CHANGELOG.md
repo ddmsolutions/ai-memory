@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.8 - 2026-08-26
+
+### Added
+- Family view (#62): generational LHS-to-RHS layout - generation levels solved by constraint propagation (parent_of +1, grandparent_of +2, married_to/sibling_of equal), eldest generation in column 0, barycenter ordering per generation, married pairs placed adjacent on equal footing; filters to the family subgraph and composes with labels, arrows, and the detail panel
+
+
 ## v0.6.7 - 2026-08-26
 
 ### Fixed
