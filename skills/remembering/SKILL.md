@@ -5,7 +5,7 @@ description: Proactive memory for this machine. Use when a turn establishes some
 
 # Remembering
 
-The ai-memory engine lives at `${CLAUDE_PLUGIN_ROOT}` and stores data in `~/.ai-memory/memory.db`. Run CLI commands as `python -m ai_memory ...` from the plugin root.
+The ai-memory engine stores data in `~/.ai-memory/memory.db`. Run CLI commands as `ai-memory ...` (installed entry point, works from any directory; fall back to `python -m ai_memory` from the plugin root if not installed). For content containing quotes, apostrophes, or a leading hyphen, pipe it via stdin instead of quoting it: `echo the content | ai-memory remember --type semantic`.
 
 ## Saving (choose the lightest mechanism that fits)
 

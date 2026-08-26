@@ -34,7 +34,8 @@ flowchart LR
 ```bash
 git clone https://github.com/ddmsolutions/ai-memory
 cd ai-memory
-python -m ai_memory init          # creates ~/.ai-memory/memory.db
+python -m pip install -e .        # ai-memory entry point, usable from any directory
+ai-memory init                    # creates ~/.ai-memory/memory.db
 ```
 
 Then add it as a Claude Code plugin, or wire the hooks directly into `.claude/settings.json` (see `docs/install.md`).

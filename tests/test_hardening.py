@@ -128,3 +128,34 @@ def test_lint_no_capture_finding(tmp_path):
     conn.commit()
     issues = {f["issue"] for f in store.lint(conn)}
     assert "no_capture" in issues
+
+
+# --- #54 stdin content (shell-quoting immunity) ---
+
+def test_remember_content_via_stdin(tmp_path, monkeypatch):
+    import io
+    from ai_memory.__main__ import main as cli_main
+
+    tricky = "it's a \"quoted\" fact - with -leading hyphen risk"
+    monkeypatch.setattr(sys, "stdin", io.StringIO(tricky))
+    rc = cli_main(["--db", str(tmp_path / "m.db"), "remember", "--type", "semantic"])
+    assert rc == 0
+    conn = db.connect(tmp_path / "m.db")
+    assert conn.execute("SELECT content FROM memories").fetchone()["content"] == tricky
+
+
+def test_remember_positional_still_works(tmp_path):
+    from ai_memory.__main__ import main as cli_main
+
+    rc = cli_main(["--db", str(tmp_path / "m.db"), "remember", "plain positional", "--type", "semantic"])
+    assert rc == 0
+
+
+def test_remember_empty_stdin_fails_loud(tmp_path, monkeypatch):
+    import io
+    import pytest as _pytest
+    from ai_memory.__main__ import main as cli_main
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO("   "))
+    with _pytest.raises(SystemExit):
+        cli_main(["--db", str(tmp_path / "m.db"), "remember", "--type", "semantic"])

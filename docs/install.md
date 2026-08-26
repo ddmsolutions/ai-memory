@@ -7,7 +7,8 @@ Requires Python 3.10+ (sqlite3 with FTS5, which every standard CPython build inc
 ```bash
 git clone https://github.com/ddmsolutions/ai-memory
 cd ai-memory
-python -m ai_memory init
+python -m pip install -e .   # add --user on Windows system Pythons (Scripts dir permissions)
+ai-memory init
 ```
 
 The database lives at `~/.ai-memory/memory.db`. Point `AI_MEMORY_DB` at another path to relocate it (for example, one store per machine profile or per project).

@@ -20,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("version", help="print version")
 
     r = sub.add_parser("remember", help="store a memory")
-    r.add_argument("content")
+    r.add_argument("content", nargs="?", help="omit (or use -) to read from stdin, immune to shell quoting")
     r.add_argument("--type", dest="mtype", default="episodic", choices=store.MEMORY_TYPES)
     r.add_argument("--scope", default="global")
     r.add_argument("--session", dest="origin_session", help="session id this memory was captured from")
@@ -136,7 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
     it = sub.add_parser("intend", help="prospective memory: reminders with a trigger")
     itsub = it.add_subparsers(dest="intend_command", required=True)
     ita = itsub.add_parser("add")
-    ita.add_argument("content")
+    ita.add_argument("content", nargs="?", help="omit (or use -) to read from stdin")
     grp = ita.add_mutually_exclusive_group(required=True)
     grp.add_argument("--when", help="ISO date the reminder becomes due")
     grp.add_argument("--on", help="context words that fire the reminder in a prompt")
@@ -150,7 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
     ho = sub.add_parser("handoff", help="state of play for the next session (one writer, one reader)")
     hosub = ho.add_subparsers(dest="handoff_command", required=True)
     hoa = hosub.add_parser("add")
-    hoa.add_argument("content")
+    hoa.add_argument("content", nargs="?", help="omit (or use -) to read from stdin")
     hoa.add_argument("--scope", default="global")
     hosub.add_parser("list")
 
@@ -194,6 +194,17 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _content_or_stdin(value: str | None) -> str:
+    """Shell quoting mangles real-world content (quotes, apostrophes, leading
+    hyphens); stdin bypasses the shell entirely. Empty input fails loud."""
+    if value is not None and value != "-":
+        return value
+    text = sys.stdin.read().strip()
+    if not text:
+        raise SystemExit("error: no content provided (argument or stdin)")
+    return text
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
@@ -210,7 +221,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(store.status(conn), indent=2))
     elif args.command == "remember":
         mid = store.remember(
-            conn, args.content, mtype=args.mtype, scope=args.scope,
+            conn, _content_or_stdin(args.content), mtype=args.mtype, scope=args.scope,
             origin_session=args.origin_session,
             confidence=args.confidence, pinned=args.pin, supersedes=args.supersedes,
             valence=args.valence, verify_by=args.verify_by,
@@ -373,7 +384,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "intend":
         if args.intend_command == "add":
             kind = "time" if args.when else "context"
-            iid = store.intend(conn, args.content, kind, args.when or args.on, scope=args.scope)
+            iid = store.intend(conn, _content_or_stdin(args.content), kind, args.when or args.on, scope=args.scope)
             print(f"intention #{iid} ({kind}: {args.when or args.on})")
         elif args.intend_command == "list":
             where = "" if args.all else "WHERE status = 'pending'"
@@ -387,7 +398,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "handoff":
         if args.handoff_command == "add":
             try:
-                hid = store.handoff_write(conn, args.content, scope=args.scope)
+                hid = store.handoff_write(conn, _content_or_stdin(args.content), scope=args.scope)
             except ValueError as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 1

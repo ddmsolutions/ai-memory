@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.6.2 - 2026-08-26
+
+### Fixed
+- CLI usable from any directory: `pip install -e .` gives an `ai-memory` entry point (install docs updated; on Windows system Pythons use `--user`, the Scripts dir needs no admin); sessions no longer Set-Location into the repo (#54)
+- Shell-quoting immunity: `remember`, `intend add`, and `handoff add` read content from stdin when the positional is omitted (or `-`), so quotes, apostrophes and leading hyphens in content can no longer produce argparse usage errors; empty stdin fails loud (#54)
+
+
 ## v0.6.1 - 2026-08-26
 
 Entity coverage: the graph now populates itself from what memos already declare.
