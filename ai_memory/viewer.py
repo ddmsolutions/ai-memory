@@ -114,7 +114,10 @@ def build_html(data: dict | None, serve_mode: bool = False) -> str:
     lib = "\n".join(l for l in lib.splitlines() if not l.strip().startswith("//# sourceMappingURL"))
     html = template.replace("/*__LIB__*/", lib)
     html = html.replace("__MODE__", "serve" if serve_mode else "embedded")
-    html = html.replace("__DATA__", "null" if serve_mode else json.dumps(data))
+    # <-escape so content containing "</script>" can never break out of
+    # the embedding script block; identical JSON once parsed.
+    payload = "null" if serve_mode else json.dumps(data).replace("<", "\\u003c")
+    html = html.replace("__DATA__", payload)
     return html
 
 
