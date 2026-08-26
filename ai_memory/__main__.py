@@ -54,10 +54,42 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("decay", help="age out old unpromoted, unrecalled, unpinned episodics")
     d.add_argument("--dry-run", action="store_true", help="list what would go, delete nothing")
 
+    tn = sub.add_parser("tune", help="grid-search tunables against the eval set; adopt only non-degrading configs")
+    tn.add_argument("--questions", type=Path)
+    tn.add_argument("--k", type=int, default=5)
+    tn.add_argument("--grid", type=Path, help="JSON {knob: [values]}; default: built-in retrieval grid")
+    tn.add_argument("--adopt", action="store_true", help="write the winning config (previous kept at .prev)")
+    tn.add_argument("--revert", action="store_true", help="restore the previous config")
+
     ev = sub.add_parser("eval", help="run a labelled question set against recall (read-only)")
     ev.add_argument("--questions", type=Path, required=True)
     ev.add_argument("--k", type=int, default=5)
     ev.add_argument("--out", type=Path, help="write the full JSON report here")
+    ob = sub.add_parser("observe", help="self-maintenance: read health surfaces, draft the issues they imply")
+    ob.add_argument("--post", action="store_true", help="post directly via gh (only honoured when config observer_post = direct)")
+    ob.add_argument("--drafts-dir", type=Path)
+
+    po = sub.add_parser("policy", help="policy learning: label quarantine outcomes, validate and adopt patterns")
+    posub = po.add_subparsers(dest="policy_command", required=True)
+    por = posub.add_parser("release", help="quarantined row judged harmless (records false-positive label)")
+    por.add_argument("id", type=int)
+    por.add_argument("--scope", default="global")
+    poh = posub.add_parser("hostile", help="confirm a quarantined row as genuinely hostile")
+    poh.add_argument("id", type=int)
+    pov = posub.add_parser("validate", help="corpus-check a proposed instruction pattern")
+    pov.add_argument("regex")
+    poa = posub.add_parser("adopt", help="adopt a validated pattern into config (human approval step)")
+    poa.add_argument("regex")
+    poa.add_argument("--label", required=True)
+    poa.add_argument("--kind", choices=("instruction", "secret"), default="instruction")
+
+    ac = sub.add_parser("autoconsolidate", help="gated hygiene pass: snapshot, dedupe, triage, decay, regression check")
+    ac.add_argument("--questions", type=Path, help="eval set for the regression gate (strongly recommended)")
+    ac.add_argument("--dry-run", action="store_true")
+
+    eg = sub.add_parser("eval-grow", help="generate eval questions from real failures")
+    eg.add_argument("--out", type=Path, default=Path("evals/generated.json"))
+    eg.add_argument("--days", type=int, default=30)
 
     pr = sub.add_parser("promote", help="promote an episodic into semantic/procedural")
     pr.add_argument("id", type=int)
@@ -193,6 +225,69 @@ def main(argv: list[str] | None = None) -> int:
         for row in rows:
             tag = f" [{row['valence']}]" if row["valence"] else ""
             print(f"#{row['id']} {row['created_at']}{tag} {row['content']}")
+    elif args.command == "tune":
+        from . import tuning
+
+        if args.revert:
+            print("reverted" if tuning.revert() else "nothing to revert (no .prev)")
+            return 0
+        if not args.questions:
+            print("error: --questions required (or use --revert)", file=sys.stderr)
+            return 1
+        questions = json.loads(args.questions.read_text(encoding="utf-8"))
+        grid = json.loads(args.grid.read_text(encoding="utf-8")) if args.grid else None
+        report = tuning.tune(conn, questions, grid=grid, k=args.k)
+        print(json.dumps({key: report[key] for key in ("baseline", "best", "adoptable")}, indent=2))
+        if args.adopt:
+            if report["adoptable"]:
+                target = tuning.adopt(report["best"]["overrides"])
+                print(f"adopted into {target} (revert with: tune --revert)")
+            else:
+                print("NOT adopted: best cell does not beat baseline without degradation")
+    elif args.command == "observe":
+        from . import observer
+
+        drafts = observer.observe(conn)
+        if not drafts:
+            print("nothing to raise: health surfaces are quiet")
+        else:
+            report = observer.emit(drafts, drafts_dir=args.drafts_dir, post_direct=args.post)
+            print(json.dumps(report, indent=2))
+    elif args.command == "policy":
+        from . import policy
+
+        try:
+            if args.policy_command == "release":
+                policy.release(conn, args.id, scope=args.scope)
+                print(f"released #{args.id} to scope {args.scope} (false positive recorded)")
+            elif args.policy_command == "hostile":
+                policy.confirm_hostile(conn, args.id)
+                print(f"confirmed #{args.id} hostile")
+            elif args.policy_command == "validate":
+                print(json.dumps(policy.validate(conn, args.regex), indent=2))
+            elif args.policy_command == "adopt":
+                verdict = policy.validate(conn, args.regex)
+                if not verdict["valid"]:
+                    print(f"NOT adopted, corpus regressions: {json.dumps(verdict)}", file=sys.stderr)
+                    return 1
+                target = policy.adopt(args.regex, args.label, kind=args.kind)
+                print(f"adopted into {target} (revert with: tune --revert)")
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+    elif args.command == "autoconsolidate":
+        from . import autoconsolidate, db as _db
+
+        conn.close()
+        questions = json.loads(args.questions.read_text(encoding="utf-8")) if args.questions else None
+        report = autoconsolidate.run(
+            args.db or _db.default_db_path(), questions=questions, dry_run=args.dry_run
+        )
+        print(json.dumps(report, indent=2))
+    elif args.command == "eval-grow":
+        from . import evalharness
+
+        print(json.dumps(evalharness.grow_questions(conn, args.out, days=args.days)))
     elif args.command == "eval":
         from . import evalharness
 
