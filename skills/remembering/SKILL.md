@@ -9,7 +9,7 @@ The ai-memory engine lives at `${CLAUDE_PLUGIN_ROOT}` and stores data in `~/.ai-
 
 ## Saving (choose the lightest mechanism that fits)
 
-1. **Memo block (default).** When this turn established something durable, end the reply with a fenced ```memo block containing a one-line outcome. Add a `valence: success|failure` line when the episode clearly went well or badly. The Stop hook captures it automatically. Only when the turn earned it: a vague memo dilutes recall.
+1. **Memo block (default).** When this turn established something durable, end the reply with a fenced ```memo block containing a one-line outcome. Add a `valence: success|failure` line when the episode clearly went well or badly. Add an `entities: name, name` line listing the people, projects, systems or tools involved; capture links them into the knowledge graph automatically. The Stop hook captures it automatically. Only when the turn earned it: a vague memo dilutes recall.
 2. **Direct fact or rule.** When the user states a durable fact or a standing preference explicitly, store it typed:
    `remember "<content>" --type semantic|procedural [--scope <project>] [--pin] [--verify-by YYYY-MM-DD]`
    Pin only what must never decay. Set `--verify-by` on facts that go stale (versions, prices, statuses).

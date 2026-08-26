@@ -80,7 +80,7 @@ Note on the hook commands: they invoke `python`. On systems where only `python3`
 
 Capture works by scanning the transcript for fenced memo blocks. Add a line like this to your `CLAUDE.md`:
 
-> When a turn establishes something worth remembering (a decision, a fact, a correction, a lesson), end the reply with a fenced ` ```memo ` block containing a one-line outcome. Only when the turn earned it. When ending a session mid-task, leave a fenced ` ```handoff ` block with the state of play; the next session receives it once, then it is discarded.
+> When a turn establishes something worth remembering (a decision, a fact, a correction, a lesson), end the reply with a fenced ` ```memo ` block containing a one-line outcome, plus an `entities: name, name` line naming the people, projects, systems or tools involved (they join the knowledge graph automatically). Only when the turn earned it. When ending a session mid-task, leave a fenced ` ```handoff ` block with the state of play; the next session receives it once, then it is discarded.
 
 ## 5. Seed from what you already have (optional)
 
