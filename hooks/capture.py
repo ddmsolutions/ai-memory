@@ -112,7 +112,7 @@ def main() -> int:
             if memo not in already:
                 # FR-C8: instruction-shaped memos are quarantined, not stored
                 # into any recallable scope and not silently dropped.
-                flag = redact.screen_instructions(memo)
+                flag = redact.screen_instructions(memo, cfg.get("instruction_patterns"))
                 mid = store.remember(
                     conn, memo, mtype="episodic", origin_session=session_id,
                     scope="quarantine" if flag else scope,

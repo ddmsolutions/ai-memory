@@ -65,10 +65,11 @@ INSTRUCTION_PATTERNS: list[tuple[str, re.Pattern]] = [
 ]
 
 
-def screen_instructions(text: str) -> str | None:
+def screen_instructions(text: str, extra_patterns: list | None = None) -> str | None:
     """FR-C8: return the matched label when memo content is instruction-shaped
-    (aimed at steering the model), else None. Callers quarantine, never drop."""
-    for label, rx in INSTRUCTION_PATTERNS:
+    (aimed at steering the model), else None. Callers quarantine, never drop.
+    extra_patterns come from config (FR-SL4: policy learning adopts new ones)."""
+    for label, rx in INSTRUCTION_PATTERNS + _compile_extra(extra_patterns):
         if rx.search(text):
             return label
     return None

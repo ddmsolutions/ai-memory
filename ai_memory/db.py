@@ -93,7 +93,7 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
@@ -233,6 +233,15 @@ MIGRATIONS: dict[int, list[str]] = {
            )""",
         "CREATE INDEX IF NOT EXISTS ix_handoffs_open ON handoffs(scope)"
         "  WHERE consumed_at IS NULL",
+    ],
+    11: [
+        # FR-SL4: labelled outcomes for quarantine decisions feed policy learning.
+        """CREATE TABLE IF NOT EXISTS policy_labels (
+             id         INTEGER PRIMARY KEY,
+             memory_id  INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+             label      TEXT NOT NULL CHECK (label IN ('false_positive','confirmed_hostile')),
+             created_at TEXT NOT NULL DEFAULT (datetime('now'))
+           )""",
     ],
 }
 

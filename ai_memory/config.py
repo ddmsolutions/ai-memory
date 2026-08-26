@@ -33,6 +33,8 @@ DEFAULTS: dict = {
     "scope_map": {},               # {"<absolute path prefix>": "<scope slug>"}
     "exclude_paths": [],           # absolute path prefixes where all hooks no-op entirely
     "secret_patterns": [],         # [{"label": str, "regex": str}] extra redactions
+    "instruction_patterns": [],    # [{"label": str, "regex": str}] extra injection screens
+    "observer_post": "draft",      # self-maintenance output: draft | direct
 }
 
 
