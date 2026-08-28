@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.6.10 - 2026-08-28
+
+### Fixed
+- `promote` now copies the parent's entity mentions onto the distilled row. Only memo capture writes mentions and distillation output carries no `entities:` line, so every promoted semantic or procedural fact silently left the entity graph. Measured on the live store before the fix: 296 of 395 memories had no entity link, 292 of them semantic or procedural. Inheritance copies, it never moves, so the parent keeps its own mentions
+
 ## v0.6.9 - 2026-08-26
 
 ### Added

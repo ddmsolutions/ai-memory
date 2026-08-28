@@ -57,6 +57,38 @@ def test_promote_marks_consolidated_and_records_lineage(conn):
     assert store.unconsolidated(conn) == []
 
 
+def test_promote_inherits_parent_entity_mentions(conn):
+    """A distilled rule stays in the entity graph. Only memo capture writes
+    mentions, so without inheritance every promotion drops out of it."""
+    eid = store.remember(conn, "Tom Henry introduced Cloudwize", mtype="episodic")
+    graph.mention(conn, eid, "Tom Henry", etype="person")
+    graph.mention(conn, eid, "Cloudwize", etype="organisation")
+    new_id = store.promote(conn, eid, "semantic", content="Cloudwize came via Tom Henry")
+    inherited = {
+        r["name"]
+        for r in conn.execute(
+            "SELECT e.name FROM memory_entities me JOIN entities e ON e.id = me.entity_id"
+            " WHERE me.memory_id = ?",
+            (new_id,),
+        )
+    }
+    assert inherited == {"Tom Henry", "Cloudwize"}
+    # the parent keeps its own mentions; inheritance copies, never moves
+    kept = conn.execute(
+        "SELECT COUNT(*) FROM memory_entities WHERE memory_id = ?", (eid,)
+    ).fetchone()[0]
+    assert kept == 2
+
+
+def test_promote_without_mentions_is_a_no_op(conn):
+    eid = store.remember(conn, "no entities here", mtype="episodic")
+    new_id = store.promote(conn, eid, "procedural", content="still no entities")
+    linked = conn.execute(
+        "SELECT COUNT(*) FROM memory_entities WHERE memory_id = ?", (new_id,)
+    ).fetchone()[0]
+    assert linked == 0
+
+
 def test_promoted_from_is_enforced_foreign_key(conn):
     import sqlite3 as sq
     with pytest.raises(sq.IntegrityError):

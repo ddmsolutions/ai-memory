@@ -699,6 +699,14 @@ def promote(
         promoted_from=memory_id,
         confidence=min(1.0, row["confidence"] + 0.1),
     )
+    # FR-N1: the distilled row inherits its parent's entity mentions. Only memo
+    # capture writes mentions, and distillation output carries no entities:
+    # line, so without this every promoted fact drops out of the entity graph.
+    conn.execute(
+        "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id)"
+        " SELECT ?, entity_id FROM memory_entities WHERE memory_id = ?",
+        (new_id, memory_id),
+    )
     conn.execute("UPDATE memories SET consolidated = 1 WHERE id = ?", (memory_id,))
     conn.commit()
     return new_id
