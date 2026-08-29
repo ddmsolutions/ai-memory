@@ -104,3 +104,35 @@ python -m ai_memory status
 ```
 
 Start a new Claude Code session: the recall pack should appear as injected context.
+
+## 7. MCP server (optional, #61)
+
+Tool-native access for agent sessions - no shell quoting hazards, typed
+params, pre-approvable in permission systems. Destructive and trust-bearing
+operations (purge, forget, pin, trust, import, tune, autoconsolidate) are
+deliberately not exposed; those stay CLI-only, human-run. Registration is
+OPT-IN (below) - the plugin does not auto-register the server, so the base
+install stays dependency-free.
+
+```bash
+pip install 'ai-memory[mcp]'
+```
+
+Register in `.claude.json` (or a plugin's `mcpServers`):
+
+```json
+{
+  "mcpServers": {
+    "ai-memory": {
+      "command": "python",
+      "args": ["-m", "ai_memory_mcp"]
+    }
+  }
+}
+```
+
+Every MCP write passes the same capture funnel as hook capture (redaction,
+injection screen, quarantine); reads honour the shared quarantine predicate;
+scope resolves from the server's working directory exactly as the CLI does.
+An MCP caller can never claim owner-level trust (origin is agent or external
+only).

@@ -27,6 +27,15 @@ def release(conn: sqlite3.Connection, memory_id: int, scope: str = "global") -> 
         "INSERT INTO policy_labels (memory_id, label) VALUES (?, 'false_positive')",
         (memory_id,),
     )
+    # PR75 review #5: releasing a memory restores standing to the edges it
+    # evidences - a suspended edge with at least one non-quarantined evidence
+    # memory is active again. Without this, suspension was a one-way door and
+    # 'everything reviewable' held for memories only.
+    conn.execute(
+        "UPDATE edges SET status = 'active' WHERE status = 'suspended'"
+        " AND id IN (SELECT es.edge_id FROM edge_sources es"
+        "  JOIN memories m ON m.id = es.memory_id WHERE m.scope <> 'quarantine')",
+    )
     conn.commit()
 
 
@@ -76,6 +85,32 @@ def validate(conn: sqlite3.Connection, regex: str) -> dict:
         "false_positive_regressions": fp_hits,
         "confirmed_hostile_caught": hostile_hits,
     }
+
+
+def sweep(conn: sqlite3.Connection, regex: str, dry_run: bool = False) -> dict:
+    """#65 safety-triggered forgetting: quarantine-cascade every ACTIVE row a
+    hostile pattern matches. Human-invoked (running it is the approval); each
+    hit takes its promotion/derivation descendants with it via
+    store.quarantine_cascade, and machine edges lose standing with them."""
+    try:
+        rx = re.compile(regex)
+    except re.error as exc:
+        raise ValueError(f"bad regex: {exc}") from exc
+    from . import store
+
+    hits = [
+        row["id"] for row in conn.execute(
+            "SELECT id, content FROM memories WHERE scope <> 'quarantine'")
+        if rx.search(row["content"])
+    ]
+    swept: list[int] = []
+    edges = 0
+    for memory_id in hits:
+        report = store.quarantine_cascade(conn, memory_id, dry_run=dry_run)
+        swept.extend(report["memories"])
+        edges += report["edges_suspended"]
+    return {"pattern_hits": hits, "quarantined": sorted(set(swept)),
+            "edges_suspended": edges, "dry_run": dry_run}
 
 
 def adopt(regex: str, label: str, kind: str = "instruction", path: Path | None = None) -> Path:

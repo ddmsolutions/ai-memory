@@ -14,6 +14,49 @@ import sqlite3
 import urllib.request
 
 
+def _vec_conn(conn: sqlite3.Connection, dim: int | None = None) -> bool:
+    """#74: load the optional sqlite-vec extension and ensure the ANN table.
+    True when the vec0 index is usable on this connection; any failure
+    (package absent, extension loading disabled) means the JSON scan path.
+    """
+    try:
+        import sqlite_vec  # type: ignore[import-not-found]
+
+        conn.enable_load_extension(True)
+        try:
+            sqlite_vec.load(conn)
+        finally:
+            # never leave extension loading enabled on the connection
+            conn.enable_load_extension(False)
+        if dim is not None:
+            conn.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS vec_memory USING"
+                f" vec0(memory_id INTEGER PRIMARY KEY, embedding float[{int(dim)}])"
+            )
+        else:
+            # Query path: usable only if the table already exists.
+            if conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'vec_memory'"
+            ).fetchone() is None:
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def _vec_upsert(conn: sqlite3.Connection, memory_id: int, vector: list[float]) -> None:
+    try:
+        import sqlite_vec  # type: ignore[import-not-found]
+
+        conn.execute("DELETE FROM vec_memory WHERE memory_id = ?", (memory_id,))
+        conn.execute(
+            "INSERT INTO vec_memory (memory_id, embedding) VALUES (?, ?)",
+            (memory_id, sqlite_vec.serialize_float32(vector)),
+        )
+    except Exception:
+        pass
+
+
 def embed_text(text: str, cfg: dict, kind: str = "document") -> list[float] | None:
     """kind selects the model task prefix (query vs document): embedding models
     trained with prefixes measurably underperform on raw text (#59)."""
@@ -38,6 +81,11 @@ def index_memories(conn: sqlite3.Connection, cfg: dict, batch: int = 500, force:
     force drops the model's existing vectors first (prefix/model changes)."""
     if force:
         conn.execute("DELETE FROM memory_embeddings WHERE model = ?", (cfg["embed_model"],))
+        try:
+            if _vec_conn(conn):
+                conn.execute("DELETE FROM vec_memory")
+        except Exception:
+            pass
         conn.commit()
     rows = conn.execute(
         "SELECT m.id, m.content FROM v_active_memories m"
@@ -46,6 +94,7 @@ def index_memories(conn: sqlite3.Connection, cfg: dict, batch: int = 500, force:
         (cfg["embed_model"], batch),
     ).fetchall()
     done = 0
+    vec_ready: bool | None = None
     for row in rows:
         vector = embed_text(row["content"], cfg, kind="document")
         if vector is None:
@@ -55,6 +104,11 @@ def index_memories(conn: sqlite3.Connection, cfg: dict, batch: int = 500, force:
             " VALUES (?, ?, ?)",
             (row["id"], cfg["embed_model"], json.dumps(vector)),
         )
+        # #74: mirror into the ANN index when sqlite-vec is present (fail-soft).
+        if vec_ready is None:
+            vec_ready = _vec_conn(conn, dim=len(vector))
+        if vec_ready:
+            _vec_upsert(conn, row["id"], vector)
         done += 1
     if done:
         conn.commit()
@@ -73,10 +127,29 @@ def _cosine(a: list[float], b: list[float]) -> float:
 def semantic_candidates(
     conn: sqlite3.Connection, query: str, cfg: dict, limit: int
 ) -> list[tuple[int, float]]:
-    """Top memory ids by cosine similarity to the query. Empty on any failure."""
+    """Top memory ids by cosine similarity to the query. Empty on any failure.
+
+    Prefers the sqlite-vec ANN index when present (#74); the JSON scan is the
+    fallback so absence of the extension changes nothing but speed.
+    """
     query_vec = embed_text(query, cfg, kind="query")
     if query_vec is None:
         return []
+    if _vec_conn(conn):
+        try:
+            import sqlite_vec  # type: ignore[import-not-found]
+
+            rows = conn.execute(
+                "SELECT memory_id, distance FROM vec_memory"
+                " WHERE embedding MATCH ? ORDER BY distance LIMIT ?",
+                (sqlite_vec.serialize_float32(query_vec), limit),
+            ).fetchall()
+            if rows:
+                # vec0 distance is L2; monotonic with cosine for normalised
+                # embeddings, so rank order (all RRF uses) is preserved.
+                return [(r["memory_id"], 1.0 / (1.0 + r["distance"])) for r in rows]
+        except Exception:
+            pass
     scored = []
     for row in conn.execute(
         "SELECT memory_id, vector FROM memory_embeddings WHERE model = ?",

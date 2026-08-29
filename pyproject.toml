@@ -1,6 +1,6 @@
 [project]
 name = "ai-memory"
-version = "0.6.10"
+version = "0.8.0"
 description = "Persistent semantic, procedural, episodic and entity memory for Claude Code"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -10,13 +10,16 @@ keywords = ["claude-code", "memory", "agent", "sqlite", "knowledge-graph"]
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
+vec = ["sqlite-vec>=0.1"]
+mcp = ["mcp>=1.2"]
 
 [project.scripts]
 ai-memory = "ai_memory.__main__:main"
+ai-memory-mcp = "ai_memory_mcp.server:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["ai_memory"]
+packages = ["ai_memory", "ai_memory_mcp"]

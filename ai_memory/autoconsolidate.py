@@ -18,6 +18,9 @@ from typing import Callable
 from . import config as config_mod, db, evalharness, store
 
 # distiller(content) -> (mtype, distilled_content, certain) | None
+# #67 contract: PREFER VERBATIM - return the memo's own wording wherever it
+# already reads as a clean fact/rule; rewrite only what genuinely needs
+# distilling. Summarisation compounds errors across consolidation cycles.
 Distiller = Callable[[str], tuple[str, str, bool] | None]
 # entity_extractor(content) -> [(name, etype)] - FR-N5, engine-verified upserts
 Extractor = Callable[[str], list[tuple[str, str]]]
@@ -68,7 +71,8 @@ def _distil(
 ) -> dict:
     from . import graph, redact
 
-    result = {"promoted": 0, "quarantined": 0, "left": 0, "entities_mentioned": 0}
+    result = {"promoted": 0, "quarantined": 0, "left": 0, "entities_mentioned": 0,
+              "deduped": 0}
     if distiller is None:
         result["left"] = len(store.unconsolidated(conn))
         return result
@@ -78,6 +82,29 @@ def _distil(
             result["left"] += 1
             continue
         mtype, content, certain = verdict
+        # #67 dedupe-first: when the distilled content already exists as an
+        # active durable row, do NOT create a rewritten near-duplicate - mark
+        # the episode consolidated and attach it as evidence (derives_from),
+        # so repetition strengthens the existing fact instead of forking it.
+        existing = conn.execute(
+            "SELECT id FROM v_active_memories WHERE type = ? AND scope IN (?, 'global')"
+            " AND lower(content) = lower(?)",
+            (mtype, row["scope"], content),
+        ).fetchone()
+        if existing is not None:
+            if not dry_run:
+                conn.execute(
+                    "UPDATE memories SET consolidated = 1 WHERE id = ?", (row["id"],)
+                )
+                store.link_memories(conn, existing["id"], row["id"], "derives_from",
+                                    weight=0.8)
+                conn.execute(
+                    "UPDATE memories SET confidence = MIN(1.0, confidence + 0.05)"
+                    " WHERE id = ?", (existing["id"],)
+                )
+                conn.commit()
+            result["deduped"] += 1
+            continue
         # Review blocker: distiller output is MODEL-GENERATED content and gets
         # the deterministic instruction screen regardless of the model's own
         # certainty claim; a screened hit is quarantined, never recallable.

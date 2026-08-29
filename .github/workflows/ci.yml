@@ -21,3 +21,15 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: pip install .[test]
       - run: python -m pytest tests/ -q
+
+  mcp-server:
+    # #61: the optional MCP surface tests as its own job, with the extra
+    # installed so server registration is exercised, not skipped.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install .[test,mcp]
+      - run: python -m pytest tests/test_mcp_tools.py -q

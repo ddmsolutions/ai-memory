@@ -1,5 +1,94 @@
 # Changelog
 
+## v0.8.0 - 2026-08-29
+
+The research-hardening release: twelve issues from the 2026-08-29 agent-memory
+field research and the workspace-engine schema comparison, in one branch.
+Migrations 12-19; every store upgrades in place (snapshot taken first).
+
+### Added
+- Origin trust levels (#64): `memories.origin` ('owner'|'agent'|'external')
+  bound at write time; promotion inherits (Biba non-elevation - a rewrite
+  cannot launder external content into trusted memory); recall ranks by
+  origin weight and marks external rows; `trust <id> --origin X` is the only
+  elevation path (human-invoked); memo syntax `origin: external`
+  (downgrade-only - a memo claiming owner is ignored); lint suggests
+  elevation for independently corroborated external rows
+- Safety-triggered forgetting (#65): `quarantine <id>` cascades over the
+  contamination set (promoted_from children + derives_from links,
+  transitive) and suspends machine-sourced edges whose whole evidence set is
+  contaminated; `policy sweep <regex>` retro-sweeps active rows a hostile
+  pattern matches; nothing deleted, everything reviewable via policy
+  release/hostile
+- LongMemEval retrieval adapter (#66): `bench/longmemeval.py` runs the
+  benchmark's haystacks through the REAL insert funnel and production hybrid
+  search, reporting evidence recall@k + MRR per question type with the
+  overfitting caveat embedded; dataset downloaded separately
+- Dedupe-first consolidation (#67): promote() refuses non-episodic sources
+  (no summary-of-summary chains; lint catches legacy ones); `summarise`
+  consolidates a cluster with every original linked derives_from and the
+  least-trusted origin carried; autoconsolidate attaches an episode as
+  evidence of an existing identical durable row instead of forking a rewrite
+- Valid-time windows on entity edges (#68): t_valid/t_invalid with
+  UNIQUE(src,dst,rel,t_valid) - the same relationship can recur;
+  supersession closes windows, never deletes; `entity close`, `entity link
+  --from/--replaces`, `entity show --history`; valid-time only,
+  bitemporality stays excluded
+- Entity aliases + merge (#69): entity_aliases (normalised lookup keys) +
+  merge tombstones; resolution order exact canonical > alias >
+  suffix-stripped SUGGESTION; ambiguity returns the candidate set
+  interactively and links NOTHING headlessly (lint: ambiguous_alias);
+  `entity alias add/list/remove`, `entity resolve`, `entity merge`;
+  purge-by-alias reaches the canonical entity
+- Graph type registry (#70): governed ontology (is_a hierarchy, abstract,
+  symmetric, endpoint constraints, retired) seeded with a generic core;
+  permissive by default with lint findings, `graph_strict` refuses at write;
+  `entity type list/add/retire`
+- Edge provenance (#71): edges carry source channel
+  ('manual'|'consolidate'|'extract'), per-channel confidence, status, and an
+  edge_sources evidence set; deterministic corroboration reinforcement;
+  `entity why src dst --rel`; lint: edge_evidence_gone
+- Mention roles (#72): memory_entities.role ('subject'|'mentioned') +
+  confidence; first entity on an entities: line is the subject; about-X
+  ranks subject rows first; upgrade-only, promote inherits
+- External identity refs (#73): entity_refs (kind,value) unique store-wide -
+  what an entity IS vs what it is CALLED (#69); conflicting ref errors with
+  a merge suggestion; `entity ref add/list`, `entity resolve kind=value`
+- Capture idempotence + ANN (#74): memories.line_hash (partial unique) makes
+  capture/import re-runnable (session-bound: same memo from another session
+  is corroboration, not a duplicate); optional sqlite-vec vec0 index behind
+  semantic search, JSON-scan fail-soft; `[vec]` extra
+- MCP server (#61): `ai_memory_mcp/` package (`[mcp]` extra, `python -m
+  ai_memory_mcp`), 19 tools over the same funnel/quarantine/scope
+  invariants; destructive + trust-bearing surfaces (forget, pin, trust,
+  purge, import, tuning) deliberately absent; registration is opt-in via
+  `.claude.json` (documented) so the base plugin stays dependency-free;
+  separate CI job
+
+### Fixed (cold-review pass on the release branch)
+- MCP `why` no longer echoes quarantined content to a model caller - a
+  labelled stub replaces it; the human CLI keeps full access
+- Viewer: edge provenance key renamed `channel` - it collided with the D3
+  `source` endpoint key, breaking every entity edge in the payload
+- Re-linking a closed edge opens a NEW window (default valid_from) or fails
+  loud (explicit valid_from) instead of a silent no-op
+- `policy release` re-activates suspended edges whose evidence survives -
+  suspension is no longer a one-way door
+- `entity merge` folds colliding edges' evidence sets and subject roles into
+  the survivor instead of cascade-deleting them
+- `purge` follows merge-tombstone chains to a fixpoint in both directions
+  and clears intra-set merged_into FKs before deleting
+- `reify` closes the original edge (kept as history) instead of deleting it
+- `summarise` rejects clusters spanning two named scopes (global mixes with
+  one named scope); v_edges_named exposes the provenance columns
+  (migration 20); sqlite-vec extension loading wrapped in try/finally;
+  suggestion fuzzy-scan skipped on the capture hot path
+
+### Changed
+- Migration engine accepts callable entries for guarded table rebuilds
+- Export/import round-trips every new table and sanitises invented trust
+  (origins and edge sources)
+
 ## v0.6.10 - 2026-08-28
 
 ### Fixed

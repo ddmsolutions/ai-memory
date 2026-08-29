@@ -30,6 +30,9 @@ DEFAULTS: dict = {
     "embed_doc_prefix": "search_document: ",     # task prefix for indexing
     "embed_model": "nomic-embed-text",
     "embed_url": "http://localhost:11434",  # Ollama-compatible /api/embeddings endpoint
+    "graph_strict": False,         # #70: refuse unknown/retired/abstract graph types at write
+    "origin_weight_agent": 0.9,    # #64 recall rank multiplier for agent-derived rows
+    "origin_weight_external": 0.5, # #64 recall rank multiplier for external-content rows
     "link_half_life_days": 45.0,   # associative link weight decay
     "link_reinforce_factor": 0.15, # Hebbian: weight += (1 - weight) * factor
     "link_prune_floor": 0.02,      # effective weight below this is pruned at decay

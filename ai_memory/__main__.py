@@ -29,6 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--supersedes", type=int, help="id of the memory this one replaces")
     r.add_argument("--valence", choices=store.VALENCES, help="outcome of the episode")
     r.add_argument("--verify-by", dest="verify_by", help="ISO date after which this fact needs re-verification")
+    r.add_argument("--origin", choices=store.ORIGINS, default="agent",
+                   help="trust level bound at write time (#64); owner for content you typed yourself")
 
     s = sub.add_parser("search", help="full-text search")
     s.add_argument("query")
@@ -47,6 +49,14 @@ def build_parser() -> argparse.ArgumentParser:
     pin = sub.add_parser("pin", help="pin or unpin a memory")
     pin.add_argument("id", type=int)
     pin.add_argument("--off", action="store_true")
+
+    tru = sub.add_parser("trust", help="set a memory's origin trust; running this IS the human approval (#64)")
+    tru.add_argument("id", type=int)
+    tru.add_argument("--origin", required=True, choices=store.ORIGINS)
+
+    q = sub.add_parser("quarantine", help="quarantine a memory AND everything derived from it (#65); review with policy release/hostile")
+    q.add_argument("id", type=int)
+    q.add_argument("--dry-run", action="store_true", help="list the contamination set, change nothing")
 
     c = sub.add_parser("consolidate", help="list unconsolidated episodics (distil with promote)")
     c.add_argument("--limit", type=int, default=50)
@@ -90,6 +100,9 @@ def build_parser() -> argparse.ArgumentParser:
     poa.add_argument("regex")
     poa.add_argument("--label", required=True)
     poa.add_argument("--kind", choices=("instruction", "secret"), default="instruction")
+    posw = posub.add_parser("sweep", help="#65: quarantine-cascade active rows a hostile pattern matches (human-invoked)")
+    posw.add_argument("regex")
+    posw.add_argument("--dry-run", action="store_true")
 
     ac = sub.add_parser("autoconsolidate", help="gated hygiene pass: snapshot, dedupe, triage, decay, regression check")
     ac.add_argument("--questions", type=Path, help="eval set for the regression gate (strongly recommended)")
@@ -99,10 +112,15 @@ def build_parser() -> argparse.ArgumentParser:
     eg.add_argument("--out", type=Path, default=Path("evals/generated.json"))
     eg.add_argument("--days", type=int, default=30)
 
-    pr = sub.add_parser("promote", help="promote an episodic into semantic/procedural")
+    pr = sub.add_parser("promote", help="promote an episodic into semantic/procedural (verbatim by default, #67)")
     pr.add_argument("id", type=int)
     pr.add_argument("--type", dest="mtype", required=True, choices=("semantic", "procedural"))
     pr.add_argument("--content", help="rewritten distilled content (defaults to original)")
+
+    sm = sub.add_parser("summarise", help="#67: consolidate a CLUSTER of episodes into one durable row, originals kept linked")
+    sm.add_argument("ids", type=int, nargs="+", help="2+ episodic memory ids")
+    sm.add_argument("--type", dest="mtype", required=True, choices=("semantic", "procedural"))
+    sm.add_argument("--content", required=True, help="the cluster summary")
 
     e = sub.add_parser("entity", help="entity graph operations")
     esub = e.add_subparsers(dest="entity_command", required=True)
@@ -115,14 +133,69 @@ def build_parser() -> argparse.ArgumentParser:
     el.add_argument("dst")
     el.add_argument("--rel", required=True)
     el.add_argument("--weight", type=float, default=1.0)
+    el.add_argument("--from", dest="valid_from", default="",
+                    help="ISO date the relationship began (#68); allows the same rel to recur")
+    el.add_argument("--replaces", action="store_true",
+                    help="close any other open window of this src/dst/rel first")
+    ec = esub.add_parser("close", help="close an edge's validity window (kept, not deleted)")
+    ec.add_argument("src")
+    ec.add_argument("dst")
+    ec.add_argument("--rel", required=True)
+    ec.add_argument("--on", help="ISO end date (default today)")
     es = esub.add_parser("show")
     es.add_argument("name")
+    es.add_argument("--history", action="store_true",
+                    help="include closed validity windows")
     em = esub.add_parser("mention", help="link a memory to an entity it mentions")
     em.add_argument("memory_id", type=int)
     em.add_argument("name")
     em.add_argument("--etype", default=None)
+    em.add_argument("--subject", action="store_true",
+                    help="#72: the memory is ABOUT this entity, not a passing mention")
     eab = esub.add_parser("about", help="everything we know about an entity")
     eab.add_argument("name")
+    ew = esub.add_parser("why", help="why we believe an edge: windows, source, evidence (#71)")
+    ew.add_argument("src")
+    ew.add_argument("dst")
+    ew.add_argument("--rel", required=True)
+    eal = esub.add_parser("alias", help="aliases: what an entity is CALLED (#69)")
+    ealsub = eal.add_subparsers(dest="alias_command", required=True)
+    eala = ealsub.add_parser("add")
+    eala.add_argument("alias")
+    eala.add_argument("canonical")
+    eall = ealsub.add_parser("list")
+    eall.add_argument("name")
+    ealr = ealsub.add_parser("remove")
+    ealr.add_argument("alias")
+    ealr.add_argument("canonical")
+    erz = esub.add_parser("resolve", help="resolve a name (or kind=value ref): ref > canonical > alias > fuzzy suggestion")
+    erz.add_argument("name")
+    erf2 = esub.add_parser("ref", help="hard identifiers: what an entity IS (#73)")
+    erfsub = erf2.add_subparsers(dest="ref_command", required=True)
+    erfa = erfsub.add_parser("add")
+    erfa.add_argument("name")
+    erfa.add_argument("ref", help="kind=value, e.g. domain=ddmsolutions.co.uk")
+    erfl = erfsub.add_parser("list")
+    erfl.add_argument("name")
+    emg = esub.add_parser("merge", help="merge a split entity: repoint mentions/edges, loser becomes an alias + redirect")
+    emg.add_argument("loser")
+    emg.add_argument("winner")
+    ety = esub.add_parser("type", help="graph type registry: governed ontology (#70)")
+    etysub = ety.add_subparsers(dest="type_command", required=True)
+    etyl = etysub.add_parser("list")
+    etyl.add_argument("--kind", choices=("entity", "edge"))
+    etya = etysub.add_parser("add")
+    etya.add_argument("kind", choices=("entity", "edge"))
+    etya.add_argument("name")
+    etya.add_argument("--is-a", dest="is_a", help="parent type of the same kind")
+    etya.add_argument("--abstract", action="store_true", help="supertype only, not assignable")
+    etya.add_argument("--symmetric", action="store_true", help="edges: relation reads both ways")
+    etya.add_argument("--src", dest="src_types", help="edges: allowed src entity types (csv)")
+    etya.add_argument("--dst", dest="dst_types", help="edges: allowed dst entity types (csv)")
+    etya.add_argument("--desc", dest="description")
+    etyr = etysub.add_parser("retire")
+    etyr.add_argument("kind", choices=("entity", "edge"))
+    etyr.add_argument("name")
     esub.add_parser("backfill", help="mention-link existing memories via their entities: lines")
     erl = esub.add_parser("role", help="role as a first-class node: holder -holds-> role [-at-> org]")
     erl.add_argument("holder")
@@ -214,6 +287,175 @@ def _content_or_stdin(value: str | None) -> str:
     return text
 
 
+
+
+def _entity_command(conn, args) -> int:
+    """Entity subcommand dispatch; AmbiguousEntity is caught by main()."""
+    if args.entity_command == "add":
+        eid = graph.add_entity(conn, args.name, etype=args.etype, summary=args.summary)
+        print(f"entity #{eid} {args.name} ({args.etype})")
+    elif args.entity_command == "link":
+        edge_id = graph.link(conn, args.src, args.dst, rel=args.rel, weight=args.weight,
+                             valid_from=args.valid_from, replaces=args.replaces)
+        print(f"edge #{edge_id} {args.src} -{args.rel}-> {args.dst}")
+    elif args.entity_command == "close":
+        n = graph.close_edge(conn, args.src, args.dst, args.rel, on=args.on)
+        print(f"closed {n} window(s): {args.src} -{args.rel}-> {args.dst}"
+              if n else "no open edge matched")
+    elif args.entity_command == "show":
+        print(graph.describe(conn, args.name, history=args.history))
+    elif args.entity_command == "mention":
+        role = "subject" if args.subject else "mentioned"
+        graph.mention(conn, args.memory_id, args.name, etype=args.etype, role=role)
+        verb = "is about" if args.subject else "mentions"
+        print(f"memory #{args.memory_id} {verb} {args.name}")
+    elif args.entity_command == "role":
+        try:
+            graph.add_role(conn, args.holder, args.title, org=args.org)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"{args.holder} -holds-> {args.title}" + (f" @ {args.org}" if args.org else ""))
+    elif args.entity_command == "reify":
+        try:
+            graph.reify_edge(conn, args.src, args.rel, args.dst)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"reified: {args.src} -has_role-> [{args.rel}] -with-> {args.dst}")
+    elif args.entity_command == "backfill":
+        print(json.dumps(graph.backfill_mentions(conn)))
+    elif args.entity_command == "why":
+        print(graph.edge_why(conn, args.src, args.rel, args.dst))
+    elif args.entity_command == "alias":
+        try:
+            if args.alias_command == "add":
+                eid = graph.add_alias(conn, args.alias, args.canonical)
+                print(f"'{args.alias}' -> {args.canonical} (#{eid})")
+            elif args.alias_command == "remove":
+                ent = graph.find_entity(conn, args.canonical)
+                if ent is None:
+                    print(f"error: no entity '{args.canonical}'", file=sys.stderr)
+                    return 1
+                n = conn.execute(
+                    "DELETE FROM entity_aliases WHERE entity_id = ? AND alias_norm = ?",
+                    (ent["id"], graph.normalise_alias(args.alias))).rowcount
+                conn.commit()
+                print(f"removed {n} alias(es)")
+            else:
+                ent = graph.find_entity(conn, args.name)
+                if ent is None:
+                    print(f"error: no entity '{args.name}'", file=sys.stderr)
+                    return 1
+                rows = conn.execute(
+                    "SELECT alias_raw, source FROM entity_aliases WHERE entity_id = ?"
+                    " ORDER BY alias_norm", (ent["id"],)).fetchall()
+                if not rows:
+                    print(f"no aliases for {ent['name']}")
+                for row in rows:
+                    print(f"{row['alias_raw']} ({row['source']})")
+        except (ValueError, graph.AmbiguousEntity) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+    elif args.entity_command == "type":
+        try:
+            if args.type_command == "add":
+                graph.add_type(conn, args.kind, args.name, is_a=args.is_a,
+                               abstract=args.abstract, symmetric=args.symmetric,
+                               src_types=args.src_types, dst_types=args.dst_types,
+                               description=args.description)
+                print(f"registered {args.kind} type '{args.name}'")
+            elif args.type_command == "retire":
+                graph.retire_type(conn, args.kind, args.name)
+                print(f"retired {args.kind} type '{args.name}'")
+            else:
+                where, params = "", []
+                if args.kind:
+                    where, params = " WHERE kind = ?", [args.kind]
+                for row in conn.execute(
+                    f"SELECT * FROM graph_types{where} ORDER BY kind, name", params
+                ):
+                    flags = []
+                    if row["is_a"]:
+                        flags.append(f"is_a {row['is_a']}")
+                    if row["abstract"]:
+                        flags.append("abstract")
+                    if row["symmetric"]:
+                        flags.append("symmetric")
+                    if row["src_types"] or row["dst_types"]:
+                        flags.append(f"{row['src_types'] or '*'} -> {row['dst_types'] or '*'}")
+                    if row["status"] == "retired":
+                        flags.append("RETIRED")
+                    extra = f" ({', '.join(flags)})" if flags else ""
+                    desc = f" - {row['description']}" if row["description"] else ""
+                    print(f"[{row['kind']}] {row['name']}{extra}{desc}")
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+    elif args.entity_command == "ref":
+        try:
+            if args.ref_command == "add":
+                if "=" not in args.ref:
+                    print("error: ref must be kind=value", file=sys.stderr)
+                    return 1
+                kind, value = args.ref.split("=", 1)
+                eid = graph.add_ref(conn, args.name, kind, value)
+                print(f"{kind.strip().lower()}={value.strip()} -> {args.name} (#{eid})")
+            else:
+                ent = graph.find_entity(conn, args.name)
+                if ent is None:
+                    print(f"error: no entity '{args.name}'", file=sys.stderr)
+                    return 1
+                rows = graph.entity_refs(conn, ent["id"])
+                if not rows:
+                    print(f"no refs for {ent['name']}")
+                for row in rows:
+                    print(f"{row['kind']}={row['value']}")
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+    elif args.entity_command == "resolve":
+        # #73: a kind=value input resolves by ref, which is authoritative.
+        if "=" in args.name:
+            kind, value = args.name.split("=", 1)
+            ent = graph.resolve_ref(conn, kind, value)
+            if ent is not None:
+                print(f"resolved by ref: #{ent['id']} {ent['name']} ({ent['etype']})")
+            else:
+                print(f"no entity holds {args.name}")
+            return 0
+        result = graph.resolve(conn, args.name)
+        if result["entity"] is not None:
+            e = result["entity"]
+            print(f"resolved: #{e['id']} {e['name']} ({e['etype']})")
+        elif result["candidates"]:
+            print(f"AMBIGUOUS: '{args.name}' matches:")
+            for c in result["candidates"]:
+                print(f"  #{c['id']} {c['name']} ({c['etype']})")
+        elif result["suggestions"]:
+            print(f"no match; did you mean:")
+            for s in result["suggestions"]:
+                print(f"  #{s['id']} {s['name']} ({s['etype']})")
+        else:
+            print(f"no entity matches '{args.name}'")
+    elif args.entity_command == "merge":
+        try:
+            report = graph.merge_entities(conn, args.loser, args.winner)
+        except (ValueError, graph.AmbiguousEntity) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"merged #{report['loser']} into #{report['winner']}:"
+              f" {report['mentions_moved']} mentions, {report['edges_moved']} edges moved;"
+              f" '{args.loser}' kept as alias + redirect")
+    elif args.entity_command == "about":
+        rows = graph.memories_about(conn, args.name)
+        if not rows:
+            print(f"nothing recorded about {args.name}")
+        for row in rows:
+            print(f"#{row['id']} [{row['type']}] {row['content']}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
@@ -233,7 +475,7 @@ def main(argv: list[str] | None = None) -> int:
             conn, _content_or_stdin(args.content), mtype=args.mtype, scope=args.scope,
             origin_session=args.origin_session,
             confidence=args.confidence, pinned=args.pin, supersedes=args.supersedes,
-            valence=args.valence, verify_by=args.verify_by,
+            valence=args.valence, verify_by=args.verify_by, origin=args.origin,
         )
         print(f"remembered #{mid} ({args.mtype})")
     elif args.command == "search":
@@ -254,6 +496,26 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "pin":
         store.set_pin(conn, args.id, not args.off)
         print(f"{'unpinned' if args.off else 'pinned'} #{args.id}")
+    elif args.command == "trust":
+        try:
+            report = store.set_trust(conn, args.id, args.origin)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"#{report['id']} origin: {report['before']} -> {report['after']}")
+    elif args.command == "quarantine":
+        try:
+            report = store.quarantine_cascade(conn, args.id, dry_run=args.dry_run)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        verb = "would quarantine" if args.dry_run else "quarantined"
+        print(f"{verb} {len(report['memories'])} memories"
+              f" ({','.join(str(i) for i in report['memories'])}),"
+              f" suspended {report['edges_suspended']} edges")
+        if report["pinned_included"]:
+            print(f"NOTE: includes pinned {report['pinned_included']} (safety wins;"
+                  " release with: policy release <id>)")
     elif args.command == "consolidate":
         rows = store.unconsolidated(conn, limit=args.limit)
         if not rows:
@@ -327,6 +589,8 @@ def main(argv: list[str] | None = None) -> int:
                     return 1
                 target = policy.adopt(args.regex, args.label, kind=args.kind)
                 print(f"adopted into {target} (revert with: tune --revert)")
+            elif args.policy_command == "sweep":
+                print(json.dumps(policy.sweep(conn, args.regex, dry_run=args.dry_run), indent=2))
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
@@ -360,42 +624,27 @@ def main(argv: list[str] | None = None) -> int:
         for row in rows:
             print(f"{verb} #{row['id']} {row['created_at']} {row['content']}")
     elif args.command == "promote":
-        new_id = store.promote(conn, args.id, args.mtype, content=args.content)
+        try:
+            new_id = store.promote(conn, args.id, args.mtype, content=args.content)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
         print(f"promoted #{args.id} -> #{new_id} ({args.mtype})")
+    elif args.command == "summarise":
+        try:
+            new_id = store.summarise(conn, args.ids, args.mtype, args.content)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"summarised {args.ids} -> #{new_id} ({args.mtype}), originals linked")
     elif args.command == "entity":
-        if args.entity_command == "add":
-            eid = graph.add_entity(conn, args.name, etype=args.etype, summary=args.summary)
-            print(f"entity #{eid} {args.name} ({args.etype})")
-        elif args.entity_command == "link":
-            edge_id = graph.link(conn, args.src, args.dst, rel=args.rel, weight=args.weight)
-            print(f"edge #{edge_id} {args.src} -{args.rel}-> {args.dst}")
-        elif args.entity_command == "show":
-            print(graph.describe(conn, args.name))
-        elif args.entity_command == "mention":
-            graph.mention(conn, args.memory_id, args.name, etype=args.etype)
-            print(f"memory #{args.memory_id} mentions {args.name}")
-        elif args.entity_command == "role":
-            try:
-                graph.add_role(conn, args.holder, args.title, org=args.org)
-            except ValueError as exc:
-                print(f"error: {exc}", file=sys.stderr)
-                return 1
-            print(f"{args.holder} -holds-> {args.title}" + (f" @ {args.org}" if args.org else ""))
-        elif args.entity_command == "reify":
-            try:
-                graph.reify_edge(conn, args.src, args.rel, args.dst)
-            except ValueError as exc:
-                print(f"error: {exc}", file=sys.stderr)
-                return 1
-            print(f"reified: {args.src} -has_role-> [{args.rel}] -with-> {args.dst}")
-        elif args.entity_command == "backfill":
-            print(json.dumps(graph.backfill_mentions(conn)))
-        elif args.entity_command == "about":
-            rows = graph.memories_about(conn, args.name)
-            if not rows:
-                print(f"nothing recorded about {args.name}")
-            for row in rows:
-                print(f"#{row['id']} [{row['type']}] {row['content']}")
+        try:
+            return _entity_command(conn, args)
+        except graph.AmbiguousEntity as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            print("disambiguate with the exact canonical name, or repair with"
+                  " 'entity merge'", file=sys.stderr)
+            return 1
     elif args.command == "embed-index":
         from . import config as _config, embeddings
 

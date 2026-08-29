@@ -12,6 +12,15 @@ MEMORY_TYPES = ("episodic", "semantic", "procedural")
 VALENCES = ("success", "failure", "neutral")
 LINK_RELS = ("derives_from", "supports", "contradicts", "follows", "co_session")
 
+# #64: origin trust, lowest first. Bound at write time; no machine path may
+# raise it (Biba integrity) - only the human `trust` command elevates.
+ORIGINS = ("external", "agent", "owner")
+
+
+def _least_trusted(*origins: str) -> str:
+    """The minimum trust level among the given origins."""
+    return min(origins, key=ORIGINS.index)
+
 
 def _fts_query(text: str) -> str:
     """Turn free text into a safe FTS5 OR-query of quoted terms."""
@@ -40,22 +49,46 @@ def remember(
     supersedes: int | None = None,
     valence: str | None = None,
     verify_by: str | None = None,
+    line_hash: str | None = None,
+    origin: str = "agent",
 ) -> int:
     if mtype not in MEMORY_TYPES:
         raise ValueError(f"type must be one of {MEMORY_TYPES}")
     if valence is not None and valence not in VALENCES:
         raise ValueError(f"valence must be one of {VALENCES}")
+    if origin not in ORIGINS:
+        raise ValueError(f"origin must be one of {ORIGINS}")
     # FR-C6: store.remember is the single insert funnel, so redaction here
     # covers every capture path (hooks, CLI, callers).
     from . import redact as _redact
 
     content = _redact.redact(content, config.load().get("secret_patterns"))[0]
-    cur = conn.execute(
-        "INSERT INTO memories (type, scope, content, origin_session, promoted_from,"
-        " confidence, pinned, valence, verify_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (mtype, scope, content, origin_session, promoted_from, confidence,
-         int(pinned), valence, verify_by),
-    )
+    # #74 idempotence: a caller-supplied content hash makes the insert
+    # re-runnable; replaying a transcript or double-firing a hook returns
+    # the existing row instead of duplicating it.
+    if line_hash is not None:
+        existing = conn.execute(
+            "SELECT id FROM memories WHERE line_hash = ?", (line_hash,)
+        ).fetchone()
+        if existing:
+            return existing["id"]
+    try:
+        cur = conn.execute(
+            "INSERT INTO memories (type, scope, content, origin_session, promoted_from,"
+            " confidence, pinned, valence, verify_by, line_hash, origin)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (mtype, scope, content, origin_session, promoted_from, confidence,
+             int(pinned), valence, verify_by, line_hash, origin),
+        )
+    except sqlite3.IntegrityError:
+        # Concurrent hooks (Stop + SubagentStop) can race the pre-check;
+        # the partial unique index is the arbiter.
+        row = conn.execute(
+            "SELECT id FROM memories WHERE line_hash = ?", (line_hash,)
+        ).fetchone()
+        if row:
+            return row["id"]
+        raise
     new_id = cur.lastrowid
     if supersedes is not None:
         conn.execute(
@@ -149,12 +182,17 @@ def search(
 
 
 def _eviction_order(cfg: dict) -> str:
-    """FR-R2: confidence x recency decay x usage saturation, as a SQL expression."""
+    """FR-R2: confidence x recency decay x usage saturation x origin trust,
+    as a SQL expression. #64: lower-trust rows rank lower, never vanish."""
     half = float(cfg["recency_half_life_days"])
     sat = float(cfg["usage_saturation"])
+    w_agent = float(cfg.get("origin_weight_agent", 0.9))
+    w_external = float(cfg.get("origin_weight_external", 0.5))
     return (
         f"confidence * (1.0 / (1.0 + (julianday('now') - julianday(created_at)) / {half}))"
         f" * (1.0 + CAST(recall_count AS REAL) / (recall_count + {sat}))"
+        f" * (CASE origin WHEN 'owner' THEN 1.0 WHEN 'external' THEN {w_external}"
+        f" ELSE {w_agent} END)"
     )
 
 
@@ -176,7 +214,8 @@ def _record_injection(conn: sqlite3.Connection, session_id: str | None, ids: lis
 
 
 def format_line(row: sqlite3.Row) -> str:
-    """One recall line: dated (FR-R11), with a verify warning past verify_by (FR-A2)."""
+    """One recall line: dated (FR-R11), with a verify warning past verify_by
+    (FR-A2) and an untrusted-source marker on external rows (#64)."""
     line = f"- [{row['created_at'][:10]}] {row['content']}"
     try:
         verify_by = row["verify_by"]
@@ -184,6 +223,12 @@ def format_line(row: sqlite3.Row) -> str:
         verify_by = None
     if verify_by and verify_by[:10] <= date.today().isoformat():
         line += f" (VERIFY: unconfirmed since {verify_by[:10]})"
+    try:
+        origin = row["origin"]
+    except (IndexError, KeyError):
+        origin = None
+    if origin == "external":
+        line += " (EXTERNAL SOURCE: weigh accordingly)"
     return line
 
 
@@ -681,6 +726,95 @@ def set_pin(conn: sqlite3.Connection, memory_id: int, pinned: bool) -> None:
     conn.commit()
 
 
+def contamination_set(conn: sqlite3.Connection, memory_id: int) -> list[int]:
+    """#65: the transitive closure of everything derived from a memory -
+    promotion children (promoted_from) and derivation links (derives_from),
+    followed recursively. The root is included."""
+    seen: set[int] = set()
+    frontier = [memory_id]
+    while frontier:
+        current = frontier.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        for row in conn.execute(
+            "SELECT id FROM memories WHERE promoted_from = ?", (current,)
+        ):
+            frontier.append(row["id"])
+        # src derives_from dst: src was derived from dst, so contamination
+        # flows dst -> src.
+        for row in conn.execute(
+            "SELECT src_memory FROM memory_links WHERE dst_memory = ?"
+            " AND rel = 'derives_from'",
+            (current,),
+        ):
+            frontier.append(row["src_memory"])
+    return sorted(seen)
+
+
+def quarantine_cascade(
+    conn: sqlite3.Connection, memory_id: int, dry_run: bool = False
+) -> dict:
+    """#65 safety-triggered forgetting: quarantine a memory AND everything
+    promoted or derived from it, and suspend machine-sourced graph edges whose
+    entire evidence set is contaminated. Nothing is deleted: quarantine is
+    reviewable (policy release / policy hostile), deletion is the human's call.
+    """
+    if conn.execute("SELECT 1 FROM memories WHERE id = ?", (memory_id,)).fetchone() is None:
+        raise ValueError(f"no memory with id {memory_id}")
+    ids = contamination_set(conn, memory_id)
+    pinned = [
+        r["id"] for r in conn.execute(
+            f"SELECT id FROM memories WHERE pinned = 1 AND id IN"
+            f" ({','.join('?' * len(ids))})", ids)
+    ]
+    report = {"memories": ids, "pinned_included": pinned, "dry_run": dry_run,
+              "edges_suspended": 0}
+    if dry_run:
+        return report
+    qmarks = ",".join("?" * len(ids))
+    conn.execute(
+        f"UPDATE memories SET scope = 'quarantine' WHERE id IN ({qmarks})", ids
+    )
+    from . import graph as _graph
+
+    report["edges_suspended"] = _graph.suspend_edges_for_memories(conn, ids)
+    conn.commit()
+    return report
+
+
+def set_trust(conn: sqlite3.Connection, memory_id: int, origin: str) -> dict:
+    """#64: the ONLY elevation path, and it is human-invoked (running the
+    command is the approval, like `policy adopt`). Downgrades are always
+    allowed; machine callers must never route through this function."""
+    if origin not in ORIGINS:
+        raise ValueError(f"origin must be one of {ORIGINS}")
+    row = conn.execute("SELECT origin FROM memories WHERE id = ?", (memory_id,)).fetchone()
+    if row is None:
+        raise ValueError(f"no memory with id {memory_id}")
+    before = row["origin"]
+    conn.execute("UPDATE memories SET origin = ? WHERE id = ?", (origin, memory_id))
+    conn.commit()
+    return {"id": memory_id, "before": before, "after": origin}
+
+
+def corroborated_external(conn: sqlite3.Connection) -> list[dict]:
+    """#64: external rows whose content also arrived from a different session.
+    The machine SUGGESTS elevation; the human `trust` command performs it."""
+    out: list[dict] = []
+    for row in conn.execute(
+        "SELECT id, content, origin_session FROM v_active_memories WHERE origin = 'external'"
+    ):
+        peer = conn.execute(
+            "SELECT id FROM v_active_memories WHERE lower(content) = lower(?)"
+            " AND id <> ? AND origin_session IS NOT ?",
+            (row["content"], row["id"], row["origin_session"]),
+        ).fetchone()
+        if peer:
+            out.append({"id": row["id"], "peer": peer["id"], "content": row["content"]})
+    return out
+
+
 def promote(
     conn: sqlite3.Connection, memory_id: int, mtype: str, content: str | None = None
 ) -> int:
@@ -691,6 +825,21 @@ def promote(
     row = conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
     if row is None:
         raise ValueError(f"no memory with id {memory_id}")
+    # #67: re-consolidation works from ORIGINALS. Promoting a promoted row
+    # would start a summary-of-summary chain, the compounding-error failure
+    # mode; distil again from the episodic sources instead.
+    if row["type"] != "episodic":
+        raise ValueError(
+            f"promote source must be episodic (#{memory_id} is {row['type']});"
+            " re-distil from the original episodes, never from a summary"
+        )
+    # #64 Biba non-elevation: the distilled row inherits its source's origin.
+    # A rewrite cannot launder external content into owner-trusted memory;
+    # elevation is the human `trust` command only.
+    try:
+        source_origin = row["origin"]
+    except (IndexError, KeyError):
+        source_origin = "agent"
     new_id = remember(
         conn,
         content or row["content"],
@@ -698,16 +847,69 @@ def promote(
         scope=row["scope"],
         promoted_from=memory_id,
         confidence=min(1.0, row["confidence"] + 0.1),
+        origin=source_origin,
     )
     # FR-N1: the distilled row inherits its parent's entity mentions. Only memo
     # capture writes mentions, and distillation output carries no entities:
     # line, so without this every promoted fact drops out of the entity graph.
     conn.execute(
-        "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id)"
-        " SELECT ?, entity_id FROM memory_entities WHERE memory_id = ?",
+        "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, role, confidence)"
+        " SELECT ?, entity_id, role, confidence FROM memory_entities WHERE memory_id = ?",
         (new_id, memory_id),
     )
     conn.execute("UPDATE memories SET consolidated = 1 WHERE id = ?", (memory_id,))
+    conn.commit()
+    return new_id
+
+
+def summarise(
+    conn: sqlite3.Connection, memory_ids: list[int], mtype: str, content: str
+) -> int:
+    """#67: consolidate a CLUSTER (3+ related episodes) into one durable row.
+    Every original stays linked via derives_from, so the summary is checkable
+    and re-consolidation can always return to the sources. Single memos should
+    promote verbatim via promote(), not through here."""
+    if mtype not in ("semantic", "procedural"):
+        raise ValueError("summarise target must be semantic or procedural")
+    if len(memory_ids) < 2:
+        raise ValueError("summarise needs 2+ sources; promote a single memo verbatim")
+    rows = conn.execute(
+        f"SELECT * FROM memories WHERE id IN ({','.join('?' * len(memory_ids))})",
+        memory_ids,
+    ).fetchall()
+    if len(rows) != len(set(memory_ids)):
+        raise ValueError("unknown memory id in the cluster")
+    for row in rows:
+        if row["type"] != "episodic":
+            raise ValueError(
+                f"#{row['id']} is {row['type']}: summaries build on originals only (#67)"
+            )
+    # #64 Biba: the summary carries the LEAST trusted origin among sources.
+    origin = _least_trusted(*(r["origin"] for r in rows))
+    # PR75 review #14: scope is the most specific one; global mixes freely
+    # with ONE named scope (search treats them as one namespace), but two
+    # different named scopes cannot silently collapse into rows[0]'s.
+    named_scopes = {r["scope"] for r in rows} - {"global"}
+    if len(named_scopes) > 1:
+        raise ValueError(
+            f"sources span scopes {sorted(named_scopes)}; summarise per scope"
+        )
+    scope = named_scopes.pop() if named_scopes else "global"
+    new_id = remember(conn, content, mtype=mtype, scope=scope,
+                      promoted_from=rows[0]["id"], origin=origin)
+    qmarks = ",".join("?" * len(memory_ids))
+    conn.execute(
+        f"UPDATE memories SET consolidated = 1 WHERE id IN ({qmarks})", memory_ids
+    )
+    for row in rows:
+        link_memories(conn, new_id, row["id"], "derives_from", weight=0.8)
+        # mentions union: the summary knows everything its sources were about
+        conn.execute(
+            "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, role, confidence)"
+            " SELECT ?, entity_id, role, confidence FROM memory_entities"
+            " WHERE memory_id = ?",
+            (new_id, row["id"]),
+        )
     conn.commit()
     return new_id
 
@@ -877,6 +1079,98 @@ def lint(conn: sqlite3.Connection) -> list[dict]:
             "issue": "weak_evidence", "ids": str(row["id"]),
             "detail": f"{row['content']} (confidence {row['confidence']:.2f})",
         })
+    for pair in corroborated_external(conn):
+        findings.append({
+            "issue": "corroborated_external",
+            "ids": f"{pair['id']},{pair['peer']}",
+            "detail": f"independently corroborated; consider: trust {pair['id']}"
+                      f" --origin agent ({pair['content'][:60]})",
+        })
+    # #67: a summary promoted from another summary compounds rewrite error;
+    # promote() now refuses it, this catches legacy chains.
+    for row in conn.execute(
+        "SELECT child.id, child.content FROM memories child"
+        " JOIN memories parent ON parent.id = child.promoted_from"
+        " WHERE parent.promoted_from IS NOT NULL AND child.superseded_by IS NULL"
+    ):
+        findings.append({
+            "issue": "summary_of_summary", "ids": str(row["id"]),
+            "detail": f"promoted from a promoted row: {row['content'][:70]}"
+                      " (re-distil from the original episodes)",
+        })
+    # #70: type governance. Unregistered or retired types are warnings (the
+    # default mode is permissive); endpoint violations mean the edge claims a
+    # relationship its own registration forbids.
+    from . import graph as _graph
+
+    for row in conn.execute(
+        "SELECT etype, COUNT(*) AS n, GROUP_CONCAT(id) AS ids FROM entities"
+        " WHERE status = 'active' AND etype NOT IN"
+        " (SELECT name FROM graph_types WHERE kind = 'entity' AND status = 'active')"
+        " GROUP BY etype"
+    ):
+        findings.append({
+            "issue": "unregistered_type", "ids": row["ids"],
+            "detail": f"entity type '{row['etype']}' not in the registry"
+                      f" ({row['n']} rows); register or rename (entity type add)",
+        })
+    for row in conn.execute(
+        "SELECT rel, COUNT(*) AS n, GROUP_CONCAT(id) AS ids FROM edges"
+        " WHERE status = 'active' AND rel NOT IN"
+        " (SELECT name FROM graph_types WHERE kind = 'edge' AND status = 'active')"
+        " GROUP BY rel"
+    ):
+        findings.append({
+            "issue": "unregistered_type", "ids": row["ids"],
+            "detail": f"edge type '{row['rel']}' not in the registry"
+                      f" ({row['n']} rows); register or rename (entity type add)",
+        })
+    for row in conn.execute(
+        "SELECT e.id, e.rel, gt.src_types, gt.dst_types,"
+        " s.name AS src_name, s.etype AS src_etype,"
+        " d.name AS dst_name, d.etype AS dst_etype"
+        " FROM edges e JOIN graph_types gt ON gt.kind = 'edge' AND gt.name = e.rel"
+        " JOIN entities s ON s.id = e.src JOIN entities d ON d.id = e.dst"
+        " WHERE e.status = 'active'"
+        " AND (gt.src_types IS NOT NULL OR gt.dst_types IS NOT NULL)"
+    ):
+        bad = []
+        if not _graph._endpoint_ok(conn, row["src_types"], row["src_etype"]):
+            bad.append(f"src {row['src_name']} ({row['src_etype']}) not in [{row['src_types']}]")
+        if not _graph._endpoint_ok(conn, row["dst_types"], row["dst_etype"]):
+            bad.append(f"dst {row['dst_name']} ({row['dst_etype']}) not in [{row['dst_types']}]")
+        if bad:
+            findings.append({
+                "issue": "edge_endpoint_violation", "ids": str(row["id"]),
+                "detail": f"{row['rel']}: " + "; ".join(bad),
+            })
+    # #69: an alias mapping to several active entities can never resolve
+    # headlessly; every capture that used it linked nothing.
+    for row in conn.execute(
+        "SELECT a.alias_norm, COUNT(DISTINCT COALESCE(e.merged_into, e.id)) AS n,"
+        " GROUP_CONCAT(DISTINCT a.entity_id) AS ids"
+        " FROM entity_aliases a JOIN entities e ON e.id = a.entity_id"
+        " GROUP BY a.alias_norm HAVING n > 1"
+    ):
+        findings.append({
+            "issue": "ambiguous_alias", "ids": row["ids"],
+            "detail": f"alias '{row['alias_norm']}' maps to {row['n']} entities;"
+                      " headless captures link nothing until resolved (entity merge"
+                      " or alias removal)",
+        })
+    # #71: a machine-sourced edge whose evidence memories have all been
+    # deleted (decay, forget, purge) asserts a claim nothing backs any more.
+    for row in conn.execute(
+        "SELECT e.id, e.rel, s.name AS src_name, d.name AS dst_name FROM edges e"
+        " JOIN entities s ON s.id = e.src JOIN entities d ON d.id = e.dst"
+        " WHERE e.source <> 'manual' AND e.status = 'active'"
+        " AND e.id NOT IN (SELECT edge_id FROM edge_sources)"
+    ):
+        findings.append({
+            "issue": "edge_evidence_gone", "ids": str(row["id"]),
+            "detail": f"{row['src_name']} -{row['rel']}-> {row['dst_name']}"
+                      " (machine-sourced, no surviving evidence)",
+        })
     return findings
 
 
@@ -887,7 +1181,8 @@ def why(conn: sqlite3.Connection, memory_id: int) -> str:
     if row is None:
         return f"No memory with id {memory_id}."
     lines = [f"**#{row['id']}** [{row['type']}/{row['scope']}] {row['content']}"]
-    facts = [f"recorded {row['created_at']}", f"confidence {row['confidence']:.2f}"]
+    facts = [f"recorded {row['created_at']}", f"confidence {row['confidence']:.2f}",
+             f"origin {row['origin']}"]
     if row["pinned"]:
         facts.append("pinned")
     if row["valence"]:

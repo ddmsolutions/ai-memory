@@ -4,7 +4,9 @@
 
 Persistent memory for Claude Code. A bolt-on plugin that gives every session four kinds of memory, stored locally in SQLite, captured and recalled automatically through hooks.
 
-Claude Code forgets everything between sessions. This plugin fixes that with a memory pipeline modelled on how human memory actually works:
+Claude Code forgets everything between sessions. This plugin fixes that with a memory pipeline modelled on how human memory actually works.
+
+The 2026 agent-memory field reviews name two gaps across every major product (Mem0, Zep, Letta, Hindsight, Cognee): none is genuinely local-first, and none puts a human review gate on what becomes durable memory. ai-memory is both: one SQLite file that never leaves your machine, and a consolidation path where promotion is gated, trust is bound at write time, and no machine path can elevate it.
 
 | Type | What it holds | Example |
 |------|---------------|---------|
@@ -71,7 +73,7 @@ python -m ai_memory status
 
 ## Status
 
-v0.4: five memory types plus handoffs, four hooks (session-start recall, turn-time recall, capture, subagent spawn injection), secret redaction and instruction quarantine, associative links, eval harness and utility feedback, export/import. See `CHANGELOG.md`; remaining backlog in `docs/roadmap.md`.
+v0.8: six memory surfaces (episodic/semantic/procedural/entity/prospective/handoff), four hooks, origin trust with Biba non-elevation and human-only `trust`, quarantine cascade over lineage, entity aliases + merge + hard refs, a governed type ontology, valid-time edge windows with provenance and evidence sets, dedupe-first consolidation, an optional MCP server (`[mcp]`) and sqlite-vec ANN (`[vec]`), and a LongMemEval retrieval adapter. See `CHANGELOG.md`; remaining backlog in `docs/roadmap.md`.
 
 ## Does it actually help?
 

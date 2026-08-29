@@ -19,7 +19,8 @@ from pathlib import Path
 MEMORY_COLS = (
     "id", "type", "scope", "content", "origin_session", "promoted_from",
     "confidence", "pinned", "consolidated", "superseded_by", "recall_count",
-    "last_recalled_at", "created_at", "valence", "verify_by",
+    "last_recalled_at", "created_at", "valence", "verify_by", "line_hash",
+    "origin",
 )
 
 
@@ -32,7 +33,11 @@ def export_store(conn: sqlite3.Connection) -> dict:
         "schema_version": conn.execute("PRAGMA user_version").fetchone()[0],
         "memories": rows("SELECT * FROM memories ORDER BY id"),
         "entities": rows("SELECT * FROM entities ORDER BY id"),
+        "entity_aliases": rows("SELECT * FROM entity_aliases"),
+        "entity_refs": rows("SELECT * FROM entity_refs"),
+        "graph_types": rows("SELECT * FROM graph_types"),
         "edges": rows("SELECT * FROM edges ORDER BY id"),
+        "edge_sources": rows("SELECT * FROM edge_sources"),
         "memory_entities": rows("SELECT * FROM memory_entities"),
         "memory_links": rows("SELECT * FROM memory_links"),
         "intentions": rows("SELECT * FROM intentions ORDER BY id"),
@@ -56,6 +61,17 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
         if scope != "quarantine" and _redact.screen_instructions(m["content"]):
             scope = "quarantine"
             quarantined += 1
+        # #74: the content hash is the strongest dedup key; it wins over the
+        # tuple match and maps references onto the existing row.
+        incoming_hash = m.get("line_hash")
+        if incoming_hash:
+            by_hash = conn.execute(
+                "SELECT id FROM memories WHERE line_hash = ?", (incoming_hash,)
+            ).fetchone()
+            if by_hash:
+                mem_map[m["id"]] = by_hash["id"]
+                deduped += 1
+                continue
         existing = conn.execute(
             "SELECT id FROM memories WHERE type = ? AND scope = ? AND content = ?"
             " AND origin_session IS ? AND created_at = ?",
@@ -65,14 +81,20 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
             mem_map[m["id"]] = existing["id"]
             deduped += 1
             continue
+        # #64: an import cannot invent trust - unknown or invalid origins land
+        # as 'agent', and 'owner' claims survive only because the human running
+        # the import of their own export IS the approval.
+        origin = m.get("origin")
+        if origin not in ("owner", "agent", "external"):
+            origin = "agent"
         cur = conn.execute(
             "INSERT INTO memories (type, scope, content, origin_session, confidence,"
             " pinned, consolidated, recall_count, last_recalled_at, created_at,"
-            " valence, verify_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            " valence, verify_by, line_hash, origin) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (m["type"], scope, m["content"], m.get("origin_session"),
              m["confidence"], m["pinned"], m["consolidated"], m["recall_count"],
              m.get("last_recalled_at"), m["created_at"], m.get("valence"),
-             m.get("verify_by")),
+             m.get("verify_by"), incoming_hash, origin),
         )
         mem_map[m["id"]] = cur.lastrowid
         imported += 1
@@ -88,6 +110,16 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
                     (mem_map[old_ref], new_id),
                 )
 
+    # #70: user-extended ontology travels with the store; seeded rows dedup.
+    for gt in data.get("graph_types", []):
+        conn.execute(
+            "INSERT OR IGNORE INTO graph_types (kind, name, is_a, abstract, symmetric,"
+            " src_types, dst_types, description, status) VALUES (?,?,?,?,?,?,?,?,?)",
+            (gt["kind"], gt["name"], gt.get("is_a"), gt.get("abstract", 0),
+             gt.get("symmetric", 0), gt.get("src_types"), gt.get("dst_types"),
+             gt.get("description"), gt.get("status", "active")),
+        )
+
     ent_map: dict[int, int] = {}
     for e in data.get("entities", []):
         cur = conn.execute(
@@ -98,22 +130,78 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
         )
         ent_map[e["id"]] = cur.fetchone()[0]
 
+    # #69: merge tombstones and aliases round-trip after every id is known.
+    for e in data.get("entities", []):
+        if e.get("status") == "merged" and e.get("merged_into") in ent_map:
+            conn.execute(
+                "UPDATE entities SET status = 'merged', merged_into = ?"
+                " WHERE id = ? AND status = 'active'",
+                (ent_map[e["merged_into"]], ent_map[e["id"]]),
+            )
+    for a in data.get("entity_aliases", []):
+        if a["entity_id"] in ent_map:
+            conn.execute(
+                "INSERT OR IGNORE INTO entity_aliases (entity_id, alias_norm, alias_raw,"
+                " source) VALUES (?,?,?,?)",
+                (ent_map[a["entity_id"]], a["alias_norm"], a["alias_raw"],
+                 a.get("source", "manual")),
+            )
+    # #73: refs are unique store-wide; a conflicting incoming ref is skipped
+    # (the local holder wins - resolve the split with entity merge).
+    for r in data.get("entity_refs", []):
+        if r["entity_id"] in ent_map:
+            conn.execute(
+                "INSERT OR IGNORE INTO entity_refs (entity_id, kind, value) VALUES (?,?,?)",
+                (ent_map[r["entity_id"]], r["kind"], r["value"]),
+            )
+
+    edge_map: dict[int, int] = {}
     for edge in data.get("edges", []):
         if edge["src"] not in ent_map or edge["dst"] not in ent_map:
             continue
-        conn.execute(
-            "INSERT INTO edges (src, dst, rel, weight, memory_id, created_at)"
-            " VALUES (?,?,?,?,?,?) ON CONFLICT(src, dst, rel) DO NOTHING",
-            (ent_map[edge["src"]], ent_map[edge["dst"]], edge["rel"], edge["weight"],
-             mem_map.get(edge.get("memory_id")), edge["created_at"]),
+        src_id, dst_id = ent_map[edge["src"]], ent_map[edge["dst"]]
+        t_valid = edge.get("t_valid", "")
+        existing_edge = conn.execute(
+            "SELECT id FROM edges WHERE src = ? AND dst = ? AND rel = ? AND t_valid = ?",
+            (src_id, dst_id, edge["rel"], t_valid),
+        ).fetchone()
+        if existing_edge:
+            edge_map[edge["id"]] = existing_edge["id"]
+            continue
+        # #71: source/confidence/status round-trip; unknown values sanitised
+        # the same way memory origins are (an import cannot invent trust).
+        source = edge.get("source")
+        if source not in ("manual", "consolidate", "extract"):
+            source = "consolidate"
+        status = edge.get("status")
+        if status not in ("active", "suspended"):
+            status = "active"
+        cur = conn.execute(
+            "INSERT INTO edges (src, dst, rel, weight, memory_id, t_valid, t_invalid,"
+            " source, confidence, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (src_id, dst_id, edge["rel"], edge["weight"],
+             mem_map.get(edge.get("memory_id")), t_valid,
+             edge.get("t_invalid"), source, edge.get("confidence", 0.7), status,
+             edge["created_at"]),
         )
+        edge_map[edge["id"]] = cur.lastrowid
+
+    for es in data.get("edge_sources", []):
+        if es["edge_id"] in edge_map and es["memory_id"] in mem_map:
+            conn.execute(
+                "INSERT OR IGNORE INTO edge_sources (edge_id, memory_id) VALUES (?, ?)",
+                (edge_map[es["edge_id"]], mem_map[es["memory_id"]]),
+            )
 
     for me in data.get("memory_entities", []):
         if me["memory_id"] in mem_map and me["entity_id"] in ent_map:
+            role = me.get("role")
             conn.execute(
-                "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, created_at)"
-                " VALUES (?,?,?)",
-                (mem_map[me["memory_id"]], ent_map[me["entity_id"]], me["created_at"]),
+                "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, role,"
+                " confidence, created_at) VALUES (?,?,?,?,?)",
+                (mem_map[me["memory_id"]], ent_map[me["entity_id"]],
+                 role if role in ("subject", "mentioned") else "mentioned",
+                 me.get("confidence", 0.7), me["created_at"]),
             )
 
     for link in data.get("memory_links", []):
@@ -209,7 +297,9 @@ def seed_from_markdown(
             continue
         lowered = content.lower()
         mtype = "procedural" if any(m in lowered for m in _PROCEDURAL_MARKERS) else "semantic"
-        store.remember(conn, content, mtype=mtype, scope=scope)
+        # #64: a CLAUDE.md or notes file the user chose to seed from is
+        # owner-authored content; the import command run IS the approval.
+        store.remember(conn, content, mtype=mtype, scope=scope, origin="owner")
         imported += 1
     return {"imported": imported, "skipped": skipped, "screened": screened}
 
