@@ -23,8 +23,11 @@ def _vec_conn(conn: sqlite3.Connection, dim: int | None = None) -> bool:
         import sqlite_vec  # type: ignore[import-not-found]
 
         conn.enable_load_extension(True)
-        sqlite_vec.load(conn)
-        conn.enable_load_extension(False)
+        try:
+            sqlite_vec.load(conn)
+        finally:
+            # never leave extension loading enabled on the connection
+            conn.enable_load_extension(False)
         if dim is not None:
             conn.execute(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS vec_memory USING"

@@ -95,8 +95,10 @@ def export_graph_json(
             "kind": "edge", "rel": edge["rel"], "weight": edge["weight"],
             # #68: closed validity windows render faded, never disappear.
             "closed": edge["t_invalid"] is not None,
-            # #71: provenance surfaces in the viewer payload.
-            "source": edge["source"], "confidence": edge["confidence"],
+            # #71: provenance surfaces in the viewer payload. Named 'channel',
+            # NOT 'source': 'source' is the D3 link endpoint key set above and
+            # a duplicate key silently broke every entity edge (PR75 review #2).
+            "channel": edge["source"], "confidence": edge["confidence"],
             "suspended": edge["status"] == "suspended",
         })
     for me in conn.execute("SELECT * FROM memory_entities"):

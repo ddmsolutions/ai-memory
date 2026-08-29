@@ -93,7 +93,7 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
@@ -385,6 +385,19 @@ MIGRATIONS: dict[int, list] = {
         "  FROM memory_entities me"
         "  JOIN entities e ON e.id = me.entity_id"
         "  JOIN v_active_memories m ON m.id = me.memory_id",
+    ],
+    20: [
+        # PR75 review #11: v_edges_named lagged the table - the migration-14
+        # rebuild predates the #71 provenance columns, so the documented
+        # inspection surface silently omitted them.
+        "DROP VIEW IF EXISTS v_edges_named",
+        "CREATE VIEW v_edges_named AS"
+        "  SELECT e.id, s.name AS src_name, s.etype AS src_etype, e.rel,"
+        "         d.name AS dst_name, d.etype AS dst_etype, e.weight, e.memory_id,"
+        "         e.t_valid, e.t_invalid, e.source, e.confidence, e.status, e.created_at"
+        "    FROM edges e"
+        "    JOIN entities s ON s.id = e.src"
+        "    JOIN entities d ON d.id = e.dst",
     ],
 }
 

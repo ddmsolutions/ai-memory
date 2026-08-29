@@ -886,7 +886,15 @@ def summarise(
             )
     # #64 Biba: the summary carries the LEAST trusted origin among sources.
     origin = _least_trusted(*(r["origin"] for r in rows))
-    scope = rows[0]["scope"]
+    # PR75 review #14: scope is the most specific one; global mixes freely
+    # with ONE named scope (search treats them as one namespace), but two
+    # different named scopes cannot silently collapse into rows[0]'s.
+    named_scopes = {r["scope"] for r in rows} - {"global"}
+    if len(named_scopes) > 1:
+        raise ValueError(
+            f"sources span scopes {sorted(named_scopes)}; summarise per scope"
+        )
+    scope = named_scopes.pop() if named_scopes else "global"
     new_id = remember(conn, content, mtype=mtype, scope=scope,
                       promoted_from=rows[0]["id"], origin=origin)
     qmarks = ",".join("?" * len(memory_ids))
@@ -1161,7 +1169,7 @@ def lint(conn: sqlite3.Connection) -> list[dict]:
         findings.append({
             "issue": "edge_evidence_gone", "ids": str(row["id"]),
             "detail": f"{row['src_name']} -{row['rel']}-> {row['dst_name']}"
-                      " (machine-sourced, all evidence deleted)",
+                      " (machine-sourced, no surviving evidence)",
         })
     return findings
 

@@ -72,13 +72,14 @@ def _follow_merge(conn: sqlite3.Connection, row: sqlite3.Row, depth: int = 0) ->
     return row
 
 
-def resolve(conn: sqlite3.Connection, name: str) -> dict:
+def resolve(conn: sqlite3.Connection, name: str, suggestions: bool = True) -> dict:
     """#69 resolution: exact canonical > alias > fuzzy suggestion.
 
     Returns {"entity": Row|None, "candidates": [Row], "suggestions": [Row]}.
     entity is set only when resolution is UNAMBIGUOUS. candidates carries the
     ambiguous set; suggestions are legal-suffix fuzzy matches that only ever
-    suggest, never auto-link.
+    suggest, never auto-link. suggestions=False skips the O(entities) fuzzy
+    scan for hot paths that discard them anyway (PR75 review #13).
     """
     canonical = conn.execute(
         "SELECT * FROM entities WHERE name = ? COLLATE NOCASE AND status = 'active'"
@@ -107,22 +108,22 @@ def resolve(conn: sqlite3.Connection, name: str) -> dict:
     if len(resolved) > 1:
         return {"entity": None, "candidates": resolved, "suggestions": []}
     # Nothing matched: offer suffix-stripped SUGGESTIONS (never auto-linked).
-    stripped = _strip_legal_suffix(norm)
-    suggestions: list[sqlite3.Row] = []
+    fuzzy: list[sqlite3.Row] = []
+    stripped = _strip_legal_suffix(norm) if suggestions else ""
     if stripped:
         for row in conn.execute(
             "SELECT * FROM entities WHERE status = 'active' ORDER BY id"
         ):
             if _strip_legal_suffix(normalise_alias(row["name"])) == stripped:
-                suggestions.append(row)
-    return {"entity": None, "candidates": [], "suggestions": suggestions}
+                fuzzy.append(row)
+    return {"entity": None, "candidates": [], "suggestions": fuzzy}
 
 
 def find_entity(conn: sqlite3.Connection, name: str) -> sqlite3.Row | None:
     """Resolve a name to a single entity through canonical names and aliases.
     Raises AmbiguousEntity when an alias maps to several entities; returns
     None when nothing matches (suggestions are resolve()'s business)."""
-    result = resolve(conn, name)
+    result = resolve(conn, name, suggestions=False)
     if result["entity"] is not None:
         return result["entity"]
     if len(result["candidates"]) > 1:
@@ -329,13 +330,52 @@ def merge_entities(conn: sqlite3.Connection, loser_name: str, winner_name: str) 
         "UPDATE OR IGNORE memory_entities SET entity_id = ? WHERE entity_id = ?",
         (wid, lid),
     ).rowcount
+    # PR75 review #6: colliding loser mentions FOLD into the winner's row
+    # (role upgrade, confidence max) before the delete, never just vanish.
+    conn.execute(
+        "UPDATE memory_entities SET role = 'subject' WHERE entity_id = ?"
+        " AND role = 'mentioned' AND memory_id IN"
+        " (SELECT memory_id FROM memory_entities WHERE entity_id = ? AND role = 'subject')",
+        (wid, lid),
+    )
+    conn.execute(
+        "UPDATE memory_entities SET confidence = MAX(confidence,"
+        " COALESCE((SELECT l.confidence FROM memory_entities l"
+        "  WHERE l.entity_id = :lid AND l.memory_id = memory_entities.memory_id), 0))"
+        " WHERE entity_id = :wid",
+        {"lid": lid, "wid": wid},
+    )
     conn.execute("DELETE FROM memory_entities WHERE entity_id = ?", (lid,))
     edges_moved = 0
     for col in ("src", "dst"):
         edges_moved += conn.execute(
             f"UPDATE OR IGNORE edges SET {col} = ? WHERE {col} = ?", (wid, lid)
         ).rowcount
-        conn.execute(f"DELETE FROM edges WHERE {col} = ?", (lid,))
+    # PR75 review #6: edges still touching the loser collided with an existing
+    # winner edge (both entities linked the same counterparty - exactly the
+    # split-entity case merge exists for). Repoint their evidence onto the
+    # surviving edge BEFORE deletion, or ON DELETE CASCADE wipes it.
+    for row in conn.execute(
+        "SELECT * FROM edges WHERE src = ? OR dst = ?", (lid, lid)
+    ).fetchall():
+        target_src = wid if row["src"] == lid else row["src"]
+        target_dst = wid if row["dst"] == lid else row["dst"]
+        survivor = conn.execute(
+            "SELECT id FROM edges WHERE src = ? AND dst = ? AND rel = ? AND t_valid = ?",
+            (target_src, target_dst, row["rel"], row["t_valid"]),
+        ).fetchone()
+        if survivor is not None and survivor["id"] != row["id"]:
+            conn.execute(
+                "INSERT OR IGNORE INTO edge_sources (edge_id, memory_id)"
+                " SELECT ?, memory_id FROM edge_sources WHERE edge_id = ?",
+                (survivor["id"], row["id"]),
+            )
+            conn.execute(
+                "UPDATE edges SET confidence = MAX(confidence,"
+                " (SELECT confidence FROM edges WHERE id = ?)) WHERE id = ?",
+                (row["id"], survivor["id"]),
+            )
+        conn.execute("DELETE FROM edges WHERE id = ?", (row["id"],))
     conn.execute(
         "UPDATE OR IGNORE entity_aliases SET entity_id = ? WHERE entity_id = ?",
         (wid, lid),
@@ -407,6 +447,23 @@ def link(
             " AND t_valid <> ?",
             (valid_from, src_id, dst_id, rel, valid_from),
         )
+    # PR75 review #4: re-asserting a CLOSED window must not be a silent no-op.
+    # With the default valid_from '' (every headless path), a closed
+    # relationship re-observed today is a NEW window opening now - the closure
+    # stays true history. An explicit valid_from colliding with a closed
+    # window is a caller error and fails loud.
+    existing_window = conn.execute(
+        "SELECT id, t_invalid FROM edges WHERE src = ? AND dst = ? AND rel = ?"
+        " AND t_valid = ?",
+        (src_id, dst_id, rel, valid_from),
+    ).fetchone()
+    if existing_window is not None and existing_window["t_invalid"] is not None:
+        if valid_from:
+            raise ValueError(
+                f"window {src_name} -{rel}-> {dst_name} from {valid_from} is closed"
+                f" ({existing_window['t_invalid'][:10]}); use a later --from or --replaces"
+            )
+        valid_from = conn.execute("SELECT date('now')").fetchone()[0]
     cur = conn.execute(
         "INSERT INTO edges (src, dst, rel, weight, memory_id, t_valid, source, confidence)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
@@ -677,12 +734,28 @@ def purge_subject(
                 (normalise_alias(entity_name),),
             ) if r["entity_id"] not in entity_ids
         ]
-        entity_ids += [
-            r["id"] for r in conn.execute(
-                f"SELECT id FROM entities WHERE merged_into IN"
-                f" ({','.join('?' * len(entity_ids))})", entity_ids
-            ) if r["id"] not in entity_ids
-        ] if entity_ids else []
+        # PR75 review #10: tombstone chains (A merged into B merged into C)
+        # are followed to a fixpoint in BOTH directions - purging any name in
+        # the chain must erase the whole identity, this is the GDPR path.
+        changed = True
+        while changed and entity_ids:
+            known = set(entity_ids)
+            qmarks = ",".join("?" * len(entity_ids))
+            extra = [
+                r["id"] for r in conn.execute(
+                    f"SELECT id FROM entities WHERE merged_into IN ({qmarks})",
+                    entity_ids,
+                ) if r["id"] not in known
+            ]
+            extra += [
+                r["merged_into"] for r in conn.execute(
+                    f"SELECT merged_into FROM entities WHERE id IN ({qmarks})"
+                    f" AND merged_into IS NOT NULL", entity_ids,
+                ) if r["merged_into"] not in known
+            ]
+            changed = bool(extra)
+            # an id can arrive via both directions in one sweep: dedup
+            entity_ids += list(dict.fromkeys(e for e in extra if e not in known))
         for eid in entity_ids:
             memory_ids.update(
                 r[0] for r in conn.execute(
@@ -727,6 +800,14 @@ def purge_subject(
     if memory_ids:
         qmarks = ",".join("?" * len(memory_ids))
         conn.execute(f"DELETE FROM memories WHERE id IN ({qmarks})", list(memory_ids))
+    if entity_ids:
+        # Tombstones in the doomed set reference each other via merged_into
+        # (no ON DELETE clause): clear the redirects first or the FK fails.
+        qmarks = ",".join("?" * len(entity_ids))
+        conn.execute(
+            f"UPDATE entities SET merged_into = NULL WHERE merged_into IN ({qmarks})",
+            list(entity_ids),
+        )
     for eid in entity_ids:
         conn.execute("DELETE FROM entities WHERE id = ?", (eid,))
     if session_id:
@@ -765,18 +846,25 @@ def reify_edge(conn: sqlite3.Connection, src: str, rel: str, dst: str) -> int:
     src_ent, dst_ent = find_entity(conn, src), find_entity(conn, dst)
     if src_ent is None or dst_ent is None:
         raise ValueError(f"unknown entity: {src if src_ent is None else dst}")
+    # Only an OPEN window converts: a closed one was already reified (or
+    # deliberately ended), so a repeat run fails loud instead of duplicating.
     edge = conn.execute(
-        "SELECT 1 FROM edges WHERE src = ? AND dst = ? AND rel = ?",
+        "SELECT 1 FROM edges WHERE src = ? AND dst = ? AND rel = ?"
+        " AND t_invalid IS NULL",
         (src_ent["id"], dst_ent["id"], rel),
     ).fetchone()
     if edge is None:
-        raise ValueError(f"no edge {src} -{rel}-> {dst}")
+        raise ValueError(f"no open edge {src} -{rel}-> {dst}")
     role_name = f"{rel.replace('_', ' ')}: {src_ent['name']} + {dst_ent['name']}"
     role_id = add_entity(conn, role_name, etype="role")
     link(conn, src_ent["name"], role_name, rel="has_role")
     link(conn, role_name, dst_ent["name"], rel="with")
+    # PR75 review #15 / #68 doctrine: the converted edge is CLOSED, never
+    # deleted - the role node is the representation going forward, the old
+    # direct edge stays as history.
     conn.execute(
-        "DELETE FROM edges WHERE src = ? AND dst = ? AND rel = ?",
+        "UPDATE edges SET t_invalid = date('now')"
+        " WHERE src = ? AND dst = ? AND rel = ? AND t_invalid IS NULL",
         (src_ent["id"], dst_ent["id"], rel),
     )
     conn.commit()

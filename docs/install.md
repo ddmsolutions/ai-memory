@@ -108,9 +108,11 @@ Start a new Claude Code session: the recall pack should appear as injected conte
 ## 7. MCP server (optional, #61)
 
 Tool-native access for agent sessions - no shell quoting hazards, typed
-params, pre-approvable in permission systems. Destructive and self-learning
-operations (purge, import, tune, autoconsolidate) are deliberately not
-exposed; those stay CLI-only.
+params, pre-approvable in permission systems. Destructive and trust-bearing
+operations (purge, forget, pin, trust, import, tune, autoconsolidate) are
+deliberately not exposed; those stay CLI-only, human-run. Registration is
+OPT-IN (below) - the plugin does not auto-register the server, so the base
+install stays dependency-free.
 
 ```bash
 pip install 'ai-memory[mcp]'

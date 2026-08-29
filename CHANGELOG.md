@@ -59,9 +59,30 @@ Migrations 12-19; every store upgrades in place (snapshot taken first).
   is corroboration, not a duplicate); optional sqlite-vec vec0 index behind
   semantic search, JSON-scan fail-soft; `[vec]` extra
 - MCP server (#61): `ai_memory_mcp/` package (`[mcp]` extra, `python -m
-  ai_memory_mcp`), 21 tools over the same funnel/quarantine/scope
-  invariants; destructive + self-learning surfaces deliberately absent;
-  plugin.json ships the mcpServers entry; separate CI job
+  ai_memory_mcp`), 19 tools over the same funnel/quarantine/scope
+  invariants; destructive + trust-bearing surfaces (forget, pin, trust,
+  purge, import, tuning) deliberately absent; registration is opt-in via
+  `.claude.json` (documented) so the base plugin stays dependency-free;
+  separate CI job
+
+### Fixed (cold-review pass on the release branch)
+- MCP `why` no longer echoes quarantined content to a model caller - a
+  labelled stub replaces it; the human CLI keeps full access
+- Viewer: edge provenance key renamed `channel` - it collided with the D3
+  `source` endpoint key, breaking every entity edge in the payload
+- Re-linking a closed edge opens a NEW window (default valid_from) or fails
+  loud (explicit valid_from) instead of a silent no-op
+- `policy release` re-activates suspended edges whose evidence survives -
+  suspension is no longer a one-way door
+- `entity merge` folds colliding edges' evidence sets and subject roles into
+  the survivor instead of cascade-deleting them
+- `purge` follows merge-tombstone chains to a fixpoint in both directions
+  and clears intra-set merged_into FKs before deleting
+- `reify` closes the original edge (kept as history) instead of deleting it
+- `summarise` rejects clusters spanning two named scopes (global mixes with
+  one named scope); v_edges_named exposes the provenance columns
+  (migration 20); sqlite-vec extension loading wrapped in try/finally;
+  suggestion fuzzy-scan skipped on the capture hot path
 
 ### Changed
 - Migration engine accepts callable entries for guarded table rebuilds

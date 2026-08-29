@@ -78,14 +78,17 @@ def test_mcp_excluded_path_refuses_writes(env, tmp_path, monkeypatch):
 
 def test_mcp_no_destructive_tools():
     exposed = {fn.__name__ for fn in tools.TOOL_FUNCTIONS}
+    # PR75 review #3/#8: forget (ungated hard delete) and pin (top-of-pack
+    # self-elevation) joined the CLI-only set alongside trust and purge.
     for banned in ("init", "purge", "import_store", "tune", "autoconsolidate",
-                   "embed_index", "quarantine_cascade", "sweep", "merge"):
+                   "embed_index", "quarantine_cascade", "sweep", "merge",
+                   "forget", "pin", "trust", "set_trust"):
         assert banned not in exposed
     # and nothing sneaks in under another name
     assert exposed == {
         "remember", "search", "recall",
         "entity_add", "entity_link", "entity_mention", "entity_about", "entity_show",
-        "consolidate_list", "promote", "forget", "pin",
+        "consolidate_list", "promote",
         "intend_add", "intend_list", "intend_done",
         "handoff_add", "handoff_list",
         "trace_list", "feedback", "status", "why",

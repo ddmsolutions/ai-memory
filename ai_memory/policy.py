@@ -27,6 +27,15 @@ def release(conn: sqlite3.Connection, memory_id: int, scope: str = "global") -> 
         "INSERT INTO policy_labels (memory_id, label) VALUES (?, 'false_positive')",
         (memory_id,),
     )
+    # PR75 review #5: releasing a memory restores standing to the edges it
+    # evidences - a suspended edge with at least one non-quarantined evidence
+    # memory is active again. Without this, suspension was a one-way door and
+    # 'everything reviewable' held for memories only.
+    conn.execute(
+        "UPDATE edges SET status = 'active' WHERE status = 'suspended'"
+        " AND id IN (SELECT es.edge_id FROM edge_sources es"
+        "  JOIN memories m ON m.id = es.memory_id WHERE m.scope <> 'quarantine')",
+    )
     conn.commit()
 
 

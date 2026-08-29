@@ -41,7 +41,6 @@ def remember(
     content: str,
     type: str = "episodic",
     scope: str | None = None,
-    pin: bool = False,
     confidence: float = 0.7,
     valence: str | None = None,
     verify_by: str | None = None,
@@ -49,7 +48,9 @@ def remember(
     origin: str = "agent",
 ) -> dict[str, Any]:
     """Store a memory. origin may be 'agent' or 'external' only: an MCP
-    caller is a model session and cannot claim owner trust (#64)."""
+    caller is a model session and cannot claim owner trust (#64). Pinning is
+    CLI-only: pinned rows lead every pack, so a machine pin would bypass the
+    origin weighting (PR75 review #8)."""
     cfg = config.load()
     if _writes_blocked(cfg):
         return {"error": "this directory is excluded from ai-memory (exclude_paths)"}
@@ -62,7 +63,7 @@ def remember(
         mid = store.remember(
             conn, content, mtype=type,
             scope="quarantine" if flag else resolved_scope,
-            confidence=confidence, pinned=pin, supersedes=supersedes,
+            confidence=confidence, supersedes=supersedes,
             valence=valence, verify_by=verify_by, origin=origin,
         )
         if not flag:
@@ -117,12 +118,15 @@ def entity_add(name: str, etype: str = "thing", summary: str | None = None) -> d
 
 
 def entity_link(src: str, dst: str, rel: str, weight: float = 1.0,
-                valid_from: str = "", replaces: bool = False) -> dict:
+                valid_from: str = "", replaces: bool = False,
+                memory_id: int | None = None) -> dict:
+    """#71: MCP writes are machine-sourced; pass the evidencing memory_id so
+    the edge is born with its evidence attached (PR75 review #9)."""
     conn = _conn()
     try:
         edge_id = graph.link(conn, src, dst, rel=rel, weight=weight,
                              valid_from=valid_from, replaces=replaces,
-                             source="extract")  # #71: MCP writes are machine-sourced
+                             source="extract", memory_id=memory_id)
         return {"edge_id": edge_id}
     except (ValueError, graph.AmbiguousEntity) as exc:
         return {"error": str(exc)}
@@ -194,24 +198,6 @@ def promote(id: int, type: str, content: str | None = None) -> dict:
         return {"id": new_id, "promoted_from": id, "type": type}
     except ValueError as exc:
         return {"error": str(exc)}
-    finally:
-        conn.close()
-
-
-def forget(id: int) -> dict:
-    conn = _conn()
-    try:
-        store.forget(conn, id)
-        return {"forgot": id}
-    finally:
-        conn.close()
-
-
-def pin(id: int, off: bool = False) -> dict:
-    conn = _conn()
-    try:
-        store.set_pin(conn, id, not off)
-        return {"id": id, "pinned": not off}
     finally:
         conn.close()
 
@@ -315,8 +301,16 @@ def status() -> dict:
 
 
 def why(id: int) -> str:
+    """Explain a memory's lineage. Review fix (PR75 #1): quarantined content
+    is NEVER echoed to a model caller - the whole trust boundary otherwise
+    falls to one id probe on an inspection tool. The human CLI keeps full
+    access; the MCP surface gets a labelled stub."""
     conn = _conn()
     try:
+        row = conn.execute("SELECT scope FROM memories WHERE id = ?", (id,)).fetchone()
+        if row is not None and row["scope"] == "quarantine":
+            return (f"#{id} is QUARANTINED: content withheld from tool access."
+                    " Review via the CLI (lint / policy release / policy hostile).")
         return store.why(conn, id)
     finally:
         conn.close()
@@ -324,10 +318,14 @@ def why(id: int) -> str:
 
 # The complete tool surface, used by server registration and the
 # no-destructive-tools negative test.
+# Review fixes (PR75 #3/#8): forget (hard delete, no gate - stronger than the
+# quarantine-everything doctrine allows a machine path) and pin (guaranteed
+# top-of-pack injection, a self-elevation route around #64 origin weighting)
+# are CLI-only, like trust and purge.
 TOOL_FUNCTIONS = (
     remember, search, recall,
     entity_add, entity_link, entity_mention, entity_about, entity_show,
-    consolidate_list, promote, forget, pin,
+    consolidate_list, promote,
     intend_add, intend_list, intend_done,
     handoff_add, handoff_list,
     trace_list, feedback, status, why,
