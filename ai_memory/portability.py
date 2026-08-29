@@ -20,6 +20,7 @@ MEMORY_COLS = (
     "id", "type", "scope", "content", "origin_session", "promoted_from",
     "confidence", "pinned", "consolidated", "superseded_by", "recall_count",
     "last_recalled_at", "created_at", "valence", "verify_by", "line_hash",
+    "origin",
 )
 
 
@@ -76,14 +77,20 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
             mem_map[m["id"]] = existing["id"]
             deduped += 1
             continue
+        # #64: an import cannot invent trust - unknown or invalid origins land
+        # as 'agent', and 'owner' claims survive only because the human running
+        # the import of their own export IS the approval.
+        origin = m.get("origin")
+        if origin not in ("owner", "agent", "external"):
+            origin = "agent"
         cur = conn.execute(
             "INSERT INTO memories (type, scope, content, origin_session, confidence,"
             " pinned, consolidated, recall_count, last_recalled_at, created_at,"
-            " valence, verify_by, line_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " valence, verify_by, line_hash, origin) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (m["type"], scope, m["content"], m.get("origin_session"),
              m["confidence"], m["pinned"], m["consolidated"], m["recall_count"],
              m.get("last_recalled_at"), m["created_at"], m.get("valence"),
-             m.get("verify_by"), incoming_hash),
+             m.get("verify_by"), incoming_hash, origin),
         )
         mem_map[m["id"]] = cur.lastrowid
         imported += 1
@@ -220,7 +227,9 @@ def seed_from_markdown(
             continue
         lowered = content.lower()
         mtype = "procedural" if any(m in lowered for m in _PROCEDURAL_MARKERS) else "semantic"
-        store.remember(conn, content, mtype=mtype, scope=scope)
+        # #64: a CLAUDE.md or notes file the user chose to seed from is
+        # owner-authored content; the import command run IS the approval.
+        store.remember(conn, content, mtype=mtype, scope=scope, origin="owner")
         imported += 1
     return {"imported": imported, "skipped": skipped, "screened": screened}
 

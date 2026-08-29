@@ -45,12 +45,22 @@ def extract_handoffs(transcript_path: str) -> list[str]:
             handoffs.extend(h.strip() for h in HANDOFF_RE.findall(text) if h.strip())
     return handoffs
 VALENCE_RE = re.compile(r"^valence:\s*(success|failure|neutral)\s*$", re.I | re.M)
+ORIGIN_RE = re.compile(r"^origin:\s*(\S+)\s*$", re.I | re.M)
 
 
 def memo_valence(memo: str) -> str | None:
     """FR-A1 memo syntax: a `valence: success|failure|neutral` line in the memo."""
     m = VALENCE_RE.search(memo)
     return m.group(1).lower() if m else None
+
+
+def memo_origin(memo: str) -> str:
+    """#64 memo syntax: an `origin: external` line marks content derived from
+    untrusted input (a fetched page, another agent's output). Memos are
+    model-written, so the default is 'agent'; a memo claiming 'owner' is
+    exactly the laundering path and is ignored - only downgrades are honoured."""
+    m = ORIGIN_RE.search(memo)
+    return "external" if m and m.group(1).lower() == "external" else "agent"
 
 
 def extract_memos(transcript_path: str) -> list[str]:
@@ -124,6 +134,7 @@ def main() -> int:
                     scope="quarantine" if flag else scope,
                     valence=memo_valence(memo),
                     line_hash=digest,
+                    origin=memo_origin(memo),
                 )
                 if not flag:
                     store.link_co_session(conn, mid, session_id)

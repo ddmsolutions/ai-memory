@@ -93,7 +93,7 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
@@ -250,6 +250,15 @@ MIGRATIONS: dict[int, list[str]] = {
         "ALTER TABLE memories ADD COLUMN line_hash TEXT",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_memories_line_hash"
         " ON memories(line_hash) WHERE line_hash IS NOT NULL",
+    ],
+    13: [
+        # #64: write-time origin binding. Trust is set at capture and is
+        # immutable to every machine path; only the human `trust` command may
+        # raise it (Biba: promotion and consolidation never elevate).
+        # Existing rows default to 'agent' - the honest label for memos the
+        # model wrote.
+        "ALTER TABLE memories ADD COLUMN origin TEXT NOT NULL DEFAULT 'agent'"
+        " CHECK (origin IN ('owner','agent','external'))",
     ],
 }
 

@@ -29,6 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--supersedes", type=int, help="id of the memory this one replaces")
     r.add_argument("--valence", choices=store.VALENCES, help="outcome of the episode")
     r.add_argument("--verify-by", dest="verify_by", help="ISO date after which this fact needs re-verification")
+    r.add_argument("--origin", choices=store.ORIGINS, default="agent",
+                   help="trust level bound at write time (#64); owner for content you typed yourself")
 
     s = sub.add_parser("search", help="full-text search")
     s.add_argument("query")
@@ -47,6 +49,10 @@ def build_parser() -> argparse.ArgumentParser:
     pin = sub.add_parser("pin", help="pin or unpin a memory")
     pin.add_argument("id", type=int)
     pin.add_argument("--off", action="store_true")
+
+    tru = sub.add_parser("trust", help="set a memory's origin trust; running this IS the human approval (#64)")
+    tru.add_argument("id", type=int)
+    tru.add_argument("--origin", required=True, choices=store.ORIGINS)
 
     c = sub.add_parser("consolidate", help="list unconsolidated episodics (distil with promote)")
     c.add_argument("--limit", type=int, default=50)
@@ -233,7 +239,7 @@ def main(argv: list[str] | None = None) -> int:
             conn, _content_or_stdin(args.content), mtype=args.mtype, scope=args.scope,
             origin_session=args.origin_session,
             confidence=args.confidence, pinned=args.pin, supersedes=args.supersedes,
-            valence=args.valence, verify_by=args.verify_by,
+            valence=args.valence, verify_by=args.verify_by, origin=args.origin,
         )
         print(f"remembered #{mid} ({args.mtype})")
     elif args.command == "search":
@@ -254,6 +260,13 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "pin":
         store.set_pin(conn, args.id, not args.off)
         print(f"{'unpinned' if args.off else 'pinned'} #{args.id}")
+    elif args.command == "trust":
+        try:
+            report = store.set_trust(conn, args.id, args.origin)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"#{report['id']} origin: {report['before']} -> {report['after']}")
     elif args.command == "consolidate":
         rows = store.unconsolidated(conn, limit=args.limit)
         if not rows:

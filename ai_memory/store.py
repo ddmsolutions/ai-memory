@@ -12,6 +12,15 @@ MEMORY_TYPES = ("episodic", "semantic", "procedural")
 VALENCES = ("success", "failure", "neutral")
 LINK_RELS = ("derives_from", "supports", "contradicts", "follows", "co_session")
 
+# #64: origin trust, lowest first. Bound at write time; no machine path may
+# raise it (Biba integrity) - only the human `trust` command elevates.
+ORIGINS = ("external", "agent", "owner")
+
+
+def _least_trusted(*origins: str) -> str:
+    """The minimum trust level among the given origins."""
+    return min(origins, key=ORIGINS.index)
+
 
 def _fts_query(text: str) -> str:
     """Turn free text into a safe FTS5 OR-query of quoted terms."""
@@ -41,11 +50,14 @@ def remember(
     valence: str | None = None,
     verify_by: str | None = None,
     line_hash: str | None = None,
+    origin: str = "agent",
 ) -> int:
     if mtype not in MEMORY_TYPES:
         raise ValueError(f"type must be one of {MEMORY_TYPES}")
     if valence is not None and valence not in VALENCES:
         raise ValueError(f"valence must be one of {VALENCES}")
+    if origin not in ORIGINS:
+        raise ValueError(f"origin must be one of {ORIGINS}")
     # FR-C6: store.remember is the single insert funnel, so redaction here
     # covers every capture path (hooks, CLI, callers).
     from . import redact as _redact
@@ -63,10 +75,10 @@ def remember(
     try:
         cur = conn.execute(
             "INSERT INTO memories (type, scope, content, origin_session, promoted_from,"
-            " confidence, pinned, valence, verify_by, line_hash)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " confidence, pinned, valence, verify_by, line_hash, origin)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (mtype, scope, content, origin_session, promoted_from, confidence,
-             int(pinned), valence, verify_by, line_hash),
+             int(pinned), valence, verify_by, line_hash, origin),
         )
     except sqlite3.IntegrityError:
         # Concurrent hooks (Stop + SubagentStop) can race the pre-check;
@@ -170,12 +182,17 @@ def search(
 
 
 def _eviction_order(cfg: dict) -> str:
-    """FR-R2: confidence x recency decay x usage saturation, as a SQL expression."""
+    """FR-R2: confidence x recency decay x usage saturation x origin trust,
+    as a SQL expression. #64: lower-trust rows rank lower, never vanish."""
     half = float(cfg["recency_half_life_days"])
     sat = float(cfg["usage_saturation"])
+    w_agent = float(cfg.get("origin_weight_agent", 0.9))
+    w_external = float(cfg.get("origin_weight_external", 0.5))
     return (
         f"confidence * (1.0 / (1.0 + (julianday('now') - julianday(created_at)) / {half}))"
         f" * (1.0 + CAST(recall_count AS REAL) / (recall_count + {sat}))"
+        f" * (CASE origin WHEN 'owner' THEN 1.0 WHEN 'external' THEN {w_external}"
+        f" ELSE {w_agent} END)"
     )
 
 
@@ -197,7 +214,8 @@ def _record_injection(conn: sqlite3.Connection, session_id: str | None, ids: lis
 
 
 def format_line(row: sqlite3.Row) -> str:
-    """One recall line: dated (FR-R11), with a verify warning past verify_by (FR-A2)."""
+    """One recall line: dated (FR-R11), with a verify warning past verify_by
+    (FR-A2) and an untrusted-source marker on external rows (#64)."""
     line = f"- [{row['created_at'][:10]}] {row['content']}"
     try:
         verify_by = row["verify_by"]
@@ -205,6 +223,12 @@ def format_line(row: sqlite3.Row) -> str:
         verify_by = None
     if verify_by and verify_by[:10] <= date.today().isoformat():
         line += f" (VERIFY: unconfirmed since {verify_by[:10]})"
+    try:
+        origin = row["origin"]
+    except (IndexError, KeyError):
+        origin = None
+    if origin == "external":
+        line += " (EXTERNAL SOURCE: weigh accordingly)"
     return line
 
 
@@ -702,6 +726,38 @@ def set_pin(conn: sqlite3.Connection, memory_id: int, pinned: bool) -> None:
     conn.commit()
 
 
+def set_trust(conn: sqlite3.Connection, memory_id: int, origin: str) -> dict:
+    """#64: the ONLY elevation path, and it is human-invoked (running the
+    command is the approval, like `policy adopt`). Downgrades are always
+    allowed; machine callers must never route through this function."""
+    if origin not in ORIGINS:
+        raise ValueError(f"origin must be one of {ORIGINS}")
+    row = conn.execute("SELECT origin FROM memories WHERE id = ?", (memory_id,)).fetchone()
+    if row is None:
+        raise ValueError(f"no memory with id {memory_id}")
+    before = row["origin"]
+    conn.execute("UPDATE memories SET origin = ? WHERE id = ?", (origin, memory_id))
+    conn.commit()
+    return {"id": memory_id, "before": before, "after": origin}
+
+
+def corroborated_external(conn: sqlite3.Connection) -> list[dict]:
+    """#64: external rows whose content also arrived from a different session.
+    The machine SUGGESTS elevation; the human `trust` command performs it."""
+    out: list[dict] = []
+    for row in conn.execute(
+        "SELECT id, content, origin_session FROM v_active_memories WHERE origin = 'external'"
+    ):
+        peer = conn.execute(
+            "SELECT id FROM v_active_memories WHERE lower(content) = lower(?)"
+            " AND id <> ? AND origin_session IS NOT ?",
+            (row["content"], row["id"], row["origin_session"]),
+        ).fetchone()
+        if peer:
+            out.append({"id": row["id"], "peer": peer["id"], "content": row["content"]})
+    return out
+
+
 def promote(
     conn: sqlite3.Connection, memory_id: int, mtype: str, content: str | None = None
 ) -> int:
@@ -712,6 +768,13 @@ def promote(
     row = conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
     if row is None:
         raise ValueError(f"no memory with id {memory_id}")
+    # #64 Biba non-elevation: the distilled row inherits its source's origin.
+    # A rewrite cannot launder external content into owner-trusted memory;
+    # elevation is the human `trust` command only.
+    try:
+        source_origin = row["origin"]
+    except (IndexError, KeyError):
+        source_origin = "agent"
     new_id = remember(
         conn,
         content or row["content"],
@@ -719,6 +782,7 @@ def promote(
         scope=row["scope"],
         promoted_from=memory_id,
         confidence=min(1.0, row["confidence"] + 0.1),
+        origin=source_origin,
     )
     # FR-N1: the distilled row inherits its parent's entity mentions. Only memo
     # capture writes mentions, and distillation output carries no entities:
@@ -898,6 +962,13 @@ def lint(conn: sqlite3.Connection) -> list[dict]:
             "issue": "weak_evidence", "ids": str(row["id"]),
             "detail": f"{row['content']} (confidence {row['confidence']:.2f})",
         })
+    for pair in corroborated_external(conn):
+        findings.append({
+            "issue": "corroborated_external",
+            "ids": f"{pair['id']},{pair['peer']}",
+            "detail": f"independently corroborated; consider: trust {pair['id']}"
+                      f" --origin agent ({pair['content'][:60]})",
+        })
     return findings
 
 
@@ -908,7 +979,8 @@ def why(conn: sqlite3.Connection, memory_id: int) -> str:
     if row is None:
         return f"No memory with id {memory_id}."
     lines = [f"**#{row['id']}** [{row['type']}/{row['scope']}] {row['content']}"]
-    facts = [f"recorded {row['created_at']}", f"confidence {row['confidence']:.2f}"]
+    facts = [f"recorded {row['created_at']}", f"confidence {row['confidence']:.2f}",
+             f"origin {row['origin']}"]
     if row["pinned"]:
         facts.append("pinned")
     if row["valence"]:
