@@ -9,7 +9,7 @@ The ai-memory engine stores data in `~/.ai-memory/memory.db`. Run CLI commands a
 
 ## Saving (choose the lightest mechanism that fits)
 
-1. **Memo block (default).** When this turn established something durable, end the reply with a fenced ```memo block containing a one-line outcome. Add a `valence: success|failure` line when the episode clearly went well or badly. Add an `entities: name, name` line listing the people, projects, systems or tools involved; capture links them into the knowledge graph automatically. The Stop hook captures it automatically. Only when the turn earned it: a vague memo dilutes recall.
+1. **Memo block (default).** When this turn established something durable, end the reply with a fenced ```memo block containing a one-line outcome. Add a `valence: success|failure` line when the episode clearly went well or badly. Add an `entities:` line listing the people, projects, systems or tools involved, each with its type in parens - `entities: Alice (person), Acme (company), payments-api (system)`; capture links them into the knowledge graph automatically, and the type stops the graph filling with untyped 'thing' nodes. First entity listed = the subject the memo is about. The Stop hook captures it automatically. Only when the turn earned it: a vague memo dilutes recall.
 2. **Direct fact or rule.** When the user states a durable fact or a standing preference explicitly, store it typed:
    `remember "<content>" --type semantic|procedural [--scope <project>] [--pin] [--verify-by YYYY-MM-DD]`
    Pin only what must never decay. Set `--verify-by` on facts that go stale (versions, prices, statuses).

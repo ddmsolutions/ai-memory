@@ -1144,6 +1144,23 @@ def lint(conn: sqlite3.Connection) -> list[dict]:
                 "issue": "edge_endpoint_violation", "ids": str(row["id"]),
                 "detail": f"{row['rel']}: " + "; ".join(bad),
             })
+    # #80: entities born from untyped entities: lines default to 'thing' and
+    # swamp the graph. One aggregate nudge, not a finding per row.
+    total_things = conn.execute(
+        "SELECT COUNT(*) FROM entities WHERE etype = 'thing' AND status = 'active'"
+    ).fetchone()[0]
+    if total_things >= 5:
+        sample = ", ".join(
+            r["name"] for r in conn.execute(
+                "SELECT name FROM entities WHERE etype = 'thing' AND status = 'active'"
+                " ORDER BY id DESC LIMIT 8")
+        )
+        findings.append({
+            "issue": "untyped_entities", "ids": "-",
+            "detail": f"{total_things} entities typed 'thing' (recent: {sample});"
+                      " fix with entity retype, or write typed entities: lines"
+                      " - entities: Alice (person), Acme (company)",
+        })
     # #69: an alias mapping to several active entities can never resolve
     # headlessly; every capture that used it linked nothing.
     for row in conn.execute(

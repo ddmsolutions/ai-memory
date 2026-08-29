@@ -180,6 +180,9 @@ def build_parser() -> argparse.ArgumentParser:
     emg = esub.add_parser("merge", help="merge a split entity: repoint mentions/edges, loser becomes an alias + redirect")
     emg.add_argument("loser")
     emg.add_argument("winner")
+    ert = esub.add_parser("retype", help="repair an entity's type in place (#80)")
+    ert.add_argument("name")
+    ert.add_argument("etype")
     ety = esub.add_parser("type", help="graph type registry: governed ontology (#70)")
     etysub = ety.add_subparsers(dest="type_command", required=True)
     etyl = etysub.add_parser("list")
@@ -357,6 +360,16 @@ def _entity_command(conn, args) -> int:
         except (ValueError, graph.AmbiguousEntity) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
+    elif args.entity_command == "retype":
+        try:
+            report = graph.retype(conn, args.name, args.etype)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        if report["changed"]:
+            print(f"#{report['id']} {args.name}: {report['before']} -> {report['etype']}")
+        else:
+            print(f"{args.name} is already {report['etype']}")
     elif args.entity_command == "type":
         try:
             if args.type_command == "add":

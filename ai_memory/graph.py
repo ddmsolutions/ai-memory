@@ -610,30 +610,48 @@ def _valid_entity_name(name: str) -> bool:
     return 3 <= len(name) <= 60 and redact.screen_instructions(name) is None
 
 
-def parse_entity_names(text: str) -> list[str]:
-    """FR-N4: the memo format already names its entities on an `entities:` line;
-    parse it deterministically. Returns validated, deduped names in order."""
-    names: list[str] = []
+# #80: an optional parenthesised type per entity. The token must LOOK like a
+# type (short, word-shaped, lowercase-ish) or the parens stay part of the name
+# - "graph.html (final)" is a name, "Alice (person)" is a typed mention.
+_TYPED_ENTITY_RE = re.compile(r"^(.+?)\s*\(([A-Za-z][A-Za-z0-9_]{1,29})\)$")
+
+
+def parse_entity_mentions(text: str) -> list[tuple[str, str | None]]:
+    """#80: parse the entities: line into (name, etype|None) pairs.
+    `entities: Alice (person), Acme (company), some system` yields the typed
+    pairs plus (some system, None). Validated, deduped by name, in order."""
+    pairs: list[tuple[str, str | None]] = []
     seen: set[str] = set()
     for match in _ENTITY_LINE_RE.finditer(text):
         for raw in match.group(1).split(","):
-            name = raw.strip().strip(".")
-            key = name.lower()
-            if name and key not in seen and _valid_entity_name(name):
+            item = raw.strip().strip(".")
+            etype: str | None = None
+            typed = _TYPED_ENTITY_RE.match(item)
+            if typed:
+                item, etype = typed.group(1).strip(), typed.group(2).lower()
+            key = item.lower()
+            if item and key not in seen and _valid_entity_name(item):
                 seen.add(key)
-                names.append(name)
-    return names
+                pairs.append((item, etype))
+    return pairs
+
+
+def parse_entity_names(text: str) -> list[str]:
+    """FR-N4: the memo format already names its entities on an `entities:` line;
+    parse it deterministically. Returns validated, deduped names in order."""
+    return [name for name, _ in parse_entity_mentions(text)]
 
 
 def mention_from_content(conn: sqlite3.Connection, memory_id: int, content: str) -> int:
     """Create mentions for every entity the content's entities: line names.
     #69: this is a HEADLESS path - an ambiguous alias links nothing (a wrong
-    merge is worse than a missed mention); lint surfaces ambiguous aliases."""
+    merge is worse than a missed mention); lint surfaces ambiguous aliases.
+    #80: `Name (type)` items carry their etype into creation or upgrade."""
     added = 0
-    for position, name in enumerate(parse_entity_names(content)):
+    for position, (name, etype) in enumerate(parse_entity_mentions(content)):
         try:
             # #72: the FIRST entity on the entities: line is the subject.
-            mention(conn, memory_id, name,
+            mention(conn, memory_id, name, etype=etype,
                     role="subject" if position == 0 else "mentioned")
         except AmbiguousEntity:
             continue
@@ -676,6 +694,18 @@ def mention(
         raise ValueError(f"no memory with id {memory_id}")
     ent = find_entity(conn, entity_name)
     entity_id = ent["id"] if ent else add_entity(conn, entity_name, etype=etype or "thing")
+    # #80: a typed mention of an untyped entity upgrades it in place - thing
+    # to specific only, never the reverse, so established types don't churn.
+    # A UNIQUE(name, etype) collision (a typed twin already exists) skips
+    # safely; that split is entity merge's business, not this hot path's.
+    if ent is not None and etype and etype != "thing" and ent["etype"] == "thing":
+        try:
+            conn.execute(
+                "UPDATE entities SET etype = ? WHERE id = ? AND etype = 'thing'",
+                (etype, entity_id),
+            )
+        except sqlite3.IntegrityError:
+            pass
     conn.execute(
         "INSERT INTO memory_entities (memory_id, entity_id, role, confidence)"
         " VALUES (?, ?, ?, ?)"
@@ -687,6 +717,27 @@ def mention(
     )
     conn.commit()
     return entity_id
+
+
+def retype(conn: sqlite3.Connection, name: str, etype: str) -> dict:
+    """#80: repair an entity's type in place. Strict-mode validated (#70);
+    fails loud when a same-name entity of the target type already exists
+    (that is a split - use entity merge)."""
+    ent = find_entity(conn, name)
+    if ent is None:
+        raise ValueError(f"no entity named '{name}'")
+    if ent["etype"] == etype:
+        return {"id": ent["id"], "etype": etype, "changed": False}
+    _validate_assignment(conn, "entity", etype)
+    try:
+        conn.execute("UPDATE entities SET etype = ? WHERE id = ?", (etype, ent["id"]))
+    except sqlite3.IntegrityError as exc:
+        raise ValueError(
+            f"an entity '{ent['name']}' ({etype}) already exists;"
+            f" repair with: entity merge '{ent['name']}' ..."
+        ) from exc
+    conn.commit()
+    return {"id": ent["id"], "before": ent["etype"], "etype": etype, "changed": True}
 
 
 def memories_about(conn: sqlite3.Connection, entity_name: str) -> list[sqlite3.Row]:
