@@ -35,6 +35,7 @@ def export_store(conn: sqlite3.Connection) -> dict:
         "entities": rows("SELECT * FROM entities ORDER BY id"),
         "entity_aliases": rows("SELECT * FROM entity_aliases"),
         "entity_refs": rows("SELECT * FROM entity_refs"),
+        "graph_types": rows("SELECT * FROM graph_types"),
         "edges": rows("SELECT * FROM edges ORDER BY id"),
         "edge_sources": rows("SELECT * FROM edge_sources"),
         "memory_entities": rows("SELECT * FROM memory_entities"),
@@ -108,6 +109,16 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
                     f"UPDATE memories SET {col} = ? WHERE id = ? AND {col} IS NULL",
                     (mem_map[old_ref], new_id),
                 )
+
+    # #70: user-extended ontology travels with the store; seeded rows dedup.
+    for gt in data.get("graph_types", []):
+        conn.execute(
+            "INSERT OR IGNORE INTO graph_types (kind, name, is_a, abstract, symmetric,"
+            " src_types, dst_types, description, status) VALUES (?,?,?,?,?,?,?,?,?)",
+            (gt["kind"], gt["name"], gt.get("is_a"), gt.get("abstract", 0),
+             gt.get("symmetric", 0), gt.get("src_types"), gt.get("dst_types"),
+             gt.get("description"), gt.get("status", "active")),
+        )
 
     ent_map: dict[int, int] = {}
     for e in data.get("entities", []):

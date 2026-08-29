@@ -1026,6 +1026,52 @@ def lint(conn: sqlite3.Connection) -> list[dict]:
             "detail": f"independently corroborated; consider: trust {pair['id']}"
                       f" --origin agent ({pair['content'][:60]})",
         })
+    # #70: type governance. Unregistered or retired types are warnings (the
+    # default mode is permissive); endpoint violations mean the edge claims a
+    # relationship its own registration forbids.
+    from . import graph as _graph
+
+    for row in conn.execute(
+        "SELECT etype, COUNT(*) AS n, GROUP_CONCAT(id) AS ids FROM entities"
+        " WHERE status = 'active' AND etype NOT IN"
+        " (SELECT name FROM graph_types WHERE kind = 'entity' AND status = 'active')"
+        " GROUP BY etype"
+    ):
+        findings.append({
+            "issue": "unregistered_type", "ids": row["ids"],
+            "detail": f"entity type '{row['etype']}' not in the registry"
+                      f" ({row['n']} rows); register or rename (entity type add)",
+        })
+    for row in conn.execute(
+        "SELECT rel, COUNT(*) AS n, GROUP_CONCAT(id) AS ids FROM edges"
+        " WHERE status = 'active' AND rel NOT IN"
+        " (SELECT name FROM graph_types WHERE kind = 'edge' AND status = 'active')"
+        " GROUP BY rel"
+    ):
+        findings.append({
+            "issue": "unregistered_type", "ids": row["ids"],
+            "detail": f"edge type '{row['rel']}' not in the registry"
+                      f" ({row['n']} rows); register or rename (entity type add)",
+        })
+    for row in conn.execute(
+        "SELECT e.id, e.rel, gt.src_types, gt.dst_types,"
+        " s.name AS src_name, s.etype AS src_etype,"
+        " d.name AS dst_name, d.etype AS dst_etype"
+        " FROM edges e JOIN graph_types gt ON gt.kind = 'edge' AND gt.name = e.rel"
+        " JOIN entities s ON s.id = e.src JOIN entities d ON d.id = e.dst"
+        " WHERE e.status = 'active'"
+        " AND (gt.src_types IS NOT NULL OR gt.dst_types IS NOT NULL)"
+    ):
+        bad = []
+        if not _graph._endpoint_ok(conn, row["src_types"], row["src_etype"]):
+            bad.append(f"src {row['src_name']} ({row['src_etype']}) not in [{row['src_types']}]")
+        if not _graph._endpoint_ok(conn, row["dst_types"], row["dst_etype"]):
+            bad.append(f"dst {row['dst_name']} ({row['dst_etype']}) not in [{row['dst_types']}]")
+        if bad:
+            findings.append({
+                "issue": "edge_endpoint_violation", "ids": str(row["id"]),
+                "detail": f"{row['rel']}: " + "; ".join(bad),
+            })
     # #69: an alias mapping to several active entities can never resolve
     # headlessly; every capture that used it linked nothing.
     for row in conn.execute(

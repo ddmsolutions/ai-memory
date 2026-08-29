@@ -93,7 +93,7 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
@@ -322,6 +322,55 @@ MIGRATIONS: dict[int, list] = {
              UNIQUE (kind, value)
            )""",
         "CREATE INDEX IF NOT EXISTS ix_refs_kind_value ON entity_refs(kind, value)",
+    ],
+    18: [
+        # #70: governed ontology for entity and edge types. Free-text etype/rel
+        # drifts ('person' vs 'people' vs 'contact'); the registry powers lint
+        # validation, is_a expansion, and viewer legends. retired status lets
+        # vocabulary evolve without breaking old rows; abstract marks
+        # supertypes that group but are not assignable.
+        """CREATE TABLE IF NOT EXISTS graph_types (
+             kind        TEXT NOT NULL CHECK (kind IN ('entity','edge')),
+             name        TEXT NOT NULL,
+             is_a        TEXT,
+             abstract    INTEGER NOT NULL DEFAULT 0,
+             symmetric   INTEGER NOT NULL DEFAULT 0,
+             src_types   TEXT,
+             dst_types   TEXT,
+             description TEXT,
+             status      TEXT NOT NULL DEFAULT 'active'
+                         CHECK (status IN ('active','retired')),
+             created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+             PRIMARY KEY (kind, name)
+           )""",
+        # Core seed: small, generic, user-extensible. INSERT OR IGNORE keeps
+        # re-runs and user overrides safe.
+        "INSERT OR IGNORE INTO graph_types (kind, name, is_a, abstract, symmetric,"
+        " src_types, dst_types, description) VALUES"
+        " ('entity','thing',NULL,0,0,NULL,NULL,'default catch-all'),"
+        " ('entity','person',NULL,0,0,NULL,NULL,'a human'),"
+        " ('entity','organisation',NULL,0,0,NULL,NULL,'org of any form'),"
+        " ('entity','company','organisation',0,0,NULL,NULL,'trading organisation'),"
+        " ('entity','team','organisation',0,0,NULL,NULL,'group within an org'),"
+        " ('entity','project',NULL,0,0,NULL,NULL,'a piece of work'),"
+        " ('entity','system',NULL,0,0,NULL,NULL,'software/service/tool'),"
+        " ('entity','file','system',0,0,NULL,NULL,'file or codebase path'),"
+        " ('entity','role',NULL,0,0,NULL,NULL,'reified role node (#57)'),"
+        " ('entity','place',NULL,0,0,NULL,NULL,'location'),"
+        " ('entity','event',NULL,0,0,NULL,NULL,'dated occurrence'),"
+        " ('entity','topic',NULL,0,0,NULL,NULL,'subject matter'),"
+        " ('edge','works_at',NULL,0,0,'person','organisation',NULL),"
+        " ('edge','member_of',NULL,0,0,'person','organisation,team,project',NULL),"
+        " ('edge','maintains',NULL,0,0,'person,team','system,file,project',NULL),"
+        " ('edge','owns',NULL,0,0,NULL,NULL,NULL),"
+        " ('edge','uses',NULL,0,0,NULL,'system,file',NULL),"
+        " ('edge','part_of',NULL,0,0,NULL,NULL,NULL),"
+        " ('edge','knows',NULL,0,1,'person','person','symmetric acquaintance'),"
+        " ('edge','holds',NULL,0,0,'person','role','role-node pattern'),"
+        " ('edge','at',NULL,0,0,'role','organisation','role-node pattern'),"
+        " ('edge','has_role',NULL,0,0,NULL,'role','reified edge pattern'),"
+        " ('edge','with',NULL,0,0,'role',NULL,'reified edge pattern'),"
+        " ('edge','related_to',NULL,0,1,NULL,NULL,'weak symmetric link')",
     ],
 }
 

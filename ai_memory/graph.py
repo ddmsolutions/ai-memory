@@ -47,6 +47,7 @@ def add_entity(
     etype: str = "thing",
     summary: str | None = None,
 ) -> int:
+    _validate_assignment(conn, "entity", etype)
     cur = conn.execute(
         "INSERT INTO entities (name, etype, summary) VALUES (?, ?, ?)"
         " ON CONFLICT(name, etype) DO UPDATE SET"
@@ -152,6 +153,122 @@ def add_alias(
     )
     conn.commit()
     return ent["id"]
+
+
+# --- #70: graph type registry (governed ontology) -------------------------
+
+def get_type(conn: sqlite3.Connection, kind: str, name: str) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM graph_types WHERE kind = ? AND name = ?", (kind, name)
+    ).fetchone()
+
+
+def add_type(
+    conn: sqlite3.Connection,
+    kind: str,
+    name: str,
+    is_a: str | None = None,
+    abstract: bool = False,
+    symmetric: bool = False,
+    src_types: str | None = None,
+    dst_types: str | None = None,
+    description: str | None = None,
+) -> None:
+    if kind not in ("entity", "edge"):
+        raise ValueError("kind must be entity or edge")
+    if is_a and get_type(conn, kind, is_a) is None:
+        raise ValueError(f"parent type '{is_a}' is not registered ({kind})")
+    conn.execute(
+        "INSERT INTO graph_types (kind, name, is_a, abstract, symmetric, src_types,"
+        " dst_types, description) VALUES (?,?,?,?,?,?,?,?)"
+        " ON CONFLICT(kind, name) DO UPDATE SET is_a = excluded.is_a,"
+        " abstract = excluded.abstract, symmetric = excluded.symmetric,"
+        " src_types = excluded.src_types, dst_types = excluded.dst_types,"
+        " description = COALESCE(excluded.description, graph_types.description),"
+        " status = 'active'",
+        (kind, name, is_a, int(abstract), int(symmetric), src_types, dst_types,
+         description),
+    )
+    conn.commit()
+
+
+def retire_type(conn: sqlite3.Connection, kind: str, name: str) -> None:
+    """Vocabulary evolves without breaking old rows: retired types stay for
+    existing data but fail strict validation and get flagged by lint."""
+    if conn.execute(
+        "UPDATE graph_types SET status = 'retired' WHERE kind = ? AND name = ?",
+        (kind, name),
+    ).rowcount == 0:
+        raise ValueError(f"no {kind} type '{name}'")
+    conn.commit()
+
+
+def type_family(conn: sqlite3.Connection, kind: str, name: str) -> set[str]:
+    """A type plus all its is_a descendants ('organisation' includes company)."""
+    out: set[str] = set()
+    frontier = [name]
+    while frontier:
+        current = frontier.pop()
+        if current in out:
+            continue
+        out.add(current)
+        frontier += [
+            r["name"] for r in conn.execute(
+                "SELECT name FROM graph_types WHERE kind = ? AND is_a = ?",
+                (kind, current),
+            )
+        ]
+    return out
+
+
+def _type_ancestors(conn: sqlite3.Connection, kind: str, name: str) -> set[str]:
+    out: set[str] = set()
+    current: str | None = name
+    while current and current not in out:
+        out.add(current)
+        row = get_type(conn, kind, current)
+        current = row["is_a"] if row else None
+    return out
+
+
+def check_type(conn: sqlite3.Connection, kind: str, name: str) -> str | None:
+    """Validation verdict for assigning a type: None = fine, else the problem."""
+    row = get_type(conn, kind, name)
+    if row is None:
+        return "unregistered"
+    if row["status"] == "retired":
+        return "retired"
+    if row["abstract"]:
+        return "abstract"
+    return None
+
+
+def _endpoint_ok(conn: sqlite3.Connection, allowed_csv: str | None, etype: str) -> bool:
+    """An endpoint constraint passes when the entity's type, or any ancestor
+    of it, appears in the allowed list (is_a-aware)."""
+    if not allowed_csv:
+        return True
+    allowed = {t.strip() for t in allowed_csv.split(",") if t.strip()}
+    return bool(allowed & _type_ancestors(conn, "entity", etype))
+
+
+def _validate_assignment(conn: sqlite3.Connection, kind: str, name: str) -> None:
+    """#70: strict mode (config graph_strict) refuses unknown/retired/abstract
+    types at write time; the default is permissive with lint as the reviewer."""
+    from . import config as _config
+
+    if not _config.load().get("graph_strict"):
+        return
+    problem = check_type(conn, kind, name)
+    if problem is not None:
+        active = ", ".join(
+            r["name"] for r in conn.execute(
+                "SELECT name FROM graph_types WHERE kind = ? AND status = 'active'"
+                " AND abstract = 0 ORDER BY name", (kind,))
+        )
+        raise ValueError(
+            f"{kind} type '{name}' is {problem} (graph_strict on); active types: {active}"
+        )
 
 
 def add_ref(conn: sqlite3.Connection, name: str, kind: str, value: str) -> int:
@@ -278,6 +395,7 @@ def link(
     """
     if source not in EDGE_SOURCES:
         raise ValueError(f"source must be one of {EDGE_SOURCES}")
+    _validate_assignment(conn, "edge", rel)
     src = find_entity(conn, src_name) or None
     dst = find_entity(conn, dst_name) or None
     src_id = src["id"] if src else add_entity(conn, src_name)

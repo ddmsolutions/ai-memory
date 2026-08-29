@@ -173,6 +173,22 @@ def build_parser() -> argparse.ArgumentParser:
     emg = esub.add_parser("merge", help="merge a split entity: repoint mentions/edges, loser becomes an alias + redirect")
     emg.add_argument("loser")
     emg.add_argument("winner")
+    ety = esub.add_parser("type", help="graph type registry: governed ontology (#70)")
+    etysub = ety.add_subparsers(dest="type_command", required=True)
+    etyl = etysub.add_parser("list")
+    etyl.add_argument("--kind", choices=("entity", "edge"))
+    etya = etysub.add_parser("add")
+    etya.add_argument("kind", choices=("entity", "edge"))
+    etya.add_argument("name")
+    etya.add_argument("--is-a", dest="is_a", help="parent type of the same kind")
+    etya.add_argument("--abstract", action="store_true", help="supertype only, not assignable")
+    etya.add_argument("--symmetric", action="store_true", help="edges: relation reads both ways")
+    etya.add_argument("--src", dest="src_types", help="edges: allowed src entity types (csv)")
+    etya.add_argument("--dst", dest="dst_types", help="edges: allowed dst entity types (csv)")
+    etya.add_argument("--desc", dest="description")
+    etyr = etysub.add_parser("retire")
+    etyr.add_argument("kind", choices=("entity", "edge"))
+    etyr.add_argument("name")
     esub.add_parser("backfill", help="mention-link existing memories via their entities: lines")
     erl = esub.add_parser("role", help="role as a first-class node: holder -holds-> role [-at-> org]")
     erl.add_argument("holder")
@@ -330,6 +346,41 @@ def _entity_command(conn, args) -> int:
                 for row in rows:
                     print(f"{row['alias_raw']} ({row['source']})")
         except (ValueError, graph.AmbiguousEntity) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+    elif args.entity_command == "type":
+        try:
+            if args.type_command == "add":
+                graph.add_type(conn, args.kind, args.name, is_a=args.is_a,
+                               abstract=args.abstract, symmetric=args.symmetric,
+                               src_types=args.src_types, dst_types=args.dst_types,
+                               description=args.description)
+                print(f"registered {args.kind} type '{args.name}'")
+            elif args.type_command == "retire":
+                graph.retire_type(conn, args.kind, args.name)
+                print(f"retired {args.kind} type '{args.name}'")
+            else:
+                where, params = "", []
+                if args.kind:
+                    where, params = " WHERE kind = ?", [args.kind]
+                for row in conn.execute(
+                    f"SELECT * FROM graph_types{where} ORDER BY kind, name", params
+                ):
+                    flags = []
+                    if row["is_a"]:
+                        flags.append(f"is_a {row['is_a']}")
+                    if row["abstract"]:
+                        flags.append("abstract")
+                    if row["symmetric"]:
+                        flags.append("symmetric")
+                    if row["src_types"] or row["dst_types"]:
+                        flags.append(f"{row['src_types'] or '*'} -> {row['dst_types'] or '*'}")
+                    if row["status"] == "retired":
+                        flags.append("RETIRED")
+                    extra = f" ({', '.join(flags)})" if flags else ""
+                    desc = f" - {row['description']}" if row["description"] else ""
+                    print(f"[{row['kind']}] {row['name']}{extra}{desc}")
+        except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
     elif args.entity_command == "ref":
