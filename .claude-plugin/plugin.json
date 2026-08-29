@@ -4,5 +4,11 @@
   "version": "0.6.9",
   "author": {
     "name": "DDM Solutions Ltd"
+  },
+  "mcpServers": {
+    "ai-memory": {
+      "command": "python",
+      "args": ["-m", "ai_memory_mcp"]
+    }
   }
 }
