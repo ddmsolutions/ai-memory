@@ -120,10 +120,12 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
         if edge["src"] not in ent_map or edge["dst"] not in ent_map:
             continue
         conn.execute(
-            "INSERT INTO edges (src, dst, rel, weight, memory_id, created_at)"
-            " VALUES (?,?,?,?,?,?) ON CONFLICT(src, dst, rel) DO NOTHING",
+            "INSERT INTO edges (src, dst, rel, weight, memory_id, t_valid, t_invalid,"
+            " created_at) VALUES (?,?,?,?,?,?,?,?)"
+            " ON CONFLICT(src, dst, rel, t_valid) DO NOTHING",
             (ent_map[edge["src"]], ent_map[edge["dst"]], edge["rel"], edge["weight"],
-             mem_map.get(edge.get("memory_id")), edge["created_at"]),
+             mem_map.get(edge.get("memory_id")), edge.get("t_valid", ""),
+             edge.get("t_invalid"), edge["created_at"]),
         )
 
     for me in data.get("memory_entities", []):

@@ -93,6 +93,8 @@ def export_graph_json(
         links.append({
             "source": f"e{edge['src']}", "target": f"e{edge['dst']}",
             "kind": "edge", "rel": edge["rel"], "weight": edge["weight"],
+            # #68: closed validity windows render faded, never disappear.
+            "closed": edge["t_invalid"] is not None,
         })
     for me in conn.execute("SELECT * FROM memory_entities"):
         if me["memory_id"] in memory_ids:

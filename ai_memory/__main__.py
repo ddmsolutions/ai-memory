@@ -121,8 +121,19 @@ def build_parser() -> argparse.ArgumentParser:
     el.add_argument("dst")
     el.add_argument("--rel", required=True)
     el.add_argument("--weight", type=float, default=1.0)
+    el.add_argument("--from", dest="valid_from", default="",
+                    help="ISO date the relationship began (#68); allows the same rel to recur")
+    el.add_argument("--replaces", action="store_true",
+                    help="close any other open window of this src/dst/rel first")
+    ec = esub.add_parser("close", help="close an edge's validity window (kept, not deleted)")
+    ec.add_argument("src")
+    ec.add_argument("dst")
+    ec.add_argument("--rel", required=True)
+    ec.add_argument("--on", help="ISO end date (default today)")
     es = esub.add_parser("show")
     es.add_argument("name")
+    es.add_argument("--history", action="store_true",
+                    help="include closed validity windows")
     em = esub.add_parser("mention", help="link a memory to an entity it mentions")
     em.add_argument("memory_id", type=int)
     em.add_argument("name")
@@ -380,10 +391,15 @@ def main(argv: list[str] | None = None) -> int:
             eid = graph.add_entity(conn, args.name, etype=args.etype, summary=args.summary)
             print(f"entity #{eid} {args.name} ({args.etype})")
         elif args.entity_command == "link":
-            edge_id = graph.link(conn, args.src, args.dst, rel=args.rel, weight=args.weight)
+            edge_id = graph.link(conn, args.src, args.dst, rel=args.rel, weight=args.weight,
+                                 valid_from=args.valid_from, replaces=args.replaces)
             print(f"edge #{edge_id} {args.src} -{args.rel}-> {args.dst}")
+        elif args.entity_command == "close":
+            n = graph.close_edge(conn, args.src, args.dst, args.rel, on=args.on)
+            print(f"closed {n} window(s): {args.src} -{args.rel}-> {args.dst}"
+                  if n else "no open edge matched")
         elif args.entity_command == "show":
-            print(graph.describe(conn, args.name))
+            print(graph.describe(conn, args.name, history=args.history))
         elif args.entity_command == "mention":
             graph.mention(conn, args.memory_id, args.name, etype=args.etype)
             print(f"memory #{args.memory_id} mentions {args.name}")

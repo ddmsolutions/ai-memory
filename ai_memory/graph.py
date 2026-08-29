@@ -38,34 +38,77 @@ def link(
     rel: str,
     weight: float = 1.0,
     memory_id: int | None = None,
+    valid_from: str = "",
+    replaces: bool = False,
 ) -> int:
+    """Create or update an edge. #68: edges carry a valid-time window.
+
+    valid_from '' means the window opened at an unknown time (the common
+    case); a dated valid_from allows the SAME relationship to recur (left,
+    rejoined) as distinct rows. replaces=True closes any other open window
+    of this (src, dst, rel) first: supersession, never deletion.
+    """
     src = find_entity(conn, src_name) or None
     dst = find_entity(conn, dst_name) or None
     src_id = src["id"] if src else add_entity(conn, src_name)
     dst_id = dst["id"] if dst else add_entity(conn, dst_name)
+    if replaces:
+        conn.execute(
+            "UPDATE edges SET t_invalid = COALESCE(NULLIF(?, ''), date('now'))"
+            " WHERE src = ? AND dst = ? AND rel = ? AND t_invalid IS NULL"
+            " AND t_valid <> ?",
+            (valid_from, src_id, dst_id, rel, valid_from),
+        )
     cur = conn.execute(
-        "INSERT INTO edges (src, dst, rel, weight, memory_id) VALUES (?, ?, ?, ?, ?)"
-        " ON CONFLICT(src, dst, rel) DO UPDATE SET"
+        "INSERT INTO edges (src, dst, rel, weight, memory_id, t_valid)"
+        " VALUES (?, ?, ?, ?, ?, ?)"
+        " ON CONFLICT(src, dst, rel, t_valid) DO UPDATE SET"
         " weight = excluded.weight, memory_id = COALESCE(excluded.memory_id, edges.memory_id)"
         " RETURNING id",
-        (src_id, dst_id, rel, weight, memory_id),
+        (src_id, dst_id, rel, weight, memory_id, valid_from),
     )
     edge_id = cur.fetchone()[0]
     conn.commit()
     return edge_id
 
 
-def neighbours(conn: sqlite3.Connection, name: str) -> list[dict]:
+def close_edge(
+    conn: sqlite3.Connection,
+    src_name: str,
+    dst_name: str,
+    rel: str,
+    on: str | None = None,
+) -> int:
+    """#68: close the open validity window(s) of an edge. Non-destructive:
+    the row survives with t_invalid set, excluded from default reads."""
+    src, dst = find_entity(conn, src_name), find_entity(conn, dst_name)
+    if src is None or dst is None:
+        return 0
+    count = conn.execute(
+        "UPDATE edges SET t_invalid = COALESCE(?, date('now'))"
+        " WHERE src = ? AND dst = ? AND rel = ? AND t_invalid IS NULL",
+        (on, src["id"], dst["id"], rel),
+    ).rowcount
+    conn.commit()
+    return count
+
+
+def neighbours(
+    conn: sqlite3.Connection, name: str, include_closed: bool = False
+) -> list[dict]:
     ent = find_entity(conn, name)
     if ent is None:
         return []
+    closed = "" if include_closed else " AND e.t_invalid IS NULL"
     rows = conn.execute(
-        """
-        SELECT e.rel, e.weight, 'out' AS direction, o.name AS other, o.etype AS other_type
-          FROM edges e JOIN entities o ON o.id = e.dst WHERE e.src = :id
+        f"""
+        SELECT e.rel, e.weight, 'out' AS direction, o.name AS other, o.etype AS other_type,
+               e.t_valid, e.t_invalid
+          FROM edges e JOIN entities o ON o.id = e.dst WHERE e.src = :id{closed}
         UNION ALL
-        SELECT e.rel, e.weight, 'in' AS direction, o.name AS other, o.etype AS other_type
-          FROM edges e JOIN entities o ON o.id = e.src WHERE e.dst = :id
+        SELECT e.rel, e.weight, 'in' AS direction, o.name AS other, o.etype AS other_type,
+               e.t_valid, e.t_invalid
+          FROM edges e JOIN entities o ON o.id = e.src WHERE e.dst = :id{closed}
         ORDER BY weight DESC
         """,
         {"id": ent["id"]},
@@ -306,15 +349,21 @@ def task_neighbourhood(conn: sqlite3.Connection, task: str, cap: int) -> list[st
     return lines
 
 
-def describe(conn: sqlite3.Connection, name: str) -> str:
-    """One-paragraph markdown summary of an entity and its relationships."""
+def describe(conn: sqlite3.Connection, name: str, history: bool = False) -> str:
+    """One-paragraph markdown summary of an entity and its relationships.
+    history=True includes closed validity windows, marked (#68)."""
     ent = find_entity(conn, name)
     if ent is None:
         return f"No entity named '{name}'."
     lines = [f"**{ent['name']}** ({ent['etype']})"]
     if ent["summary"]:
         lines.append(ent["summary"])
-    for n in neighbours(conn, name):
+    for n in neighbours(conn, name, include_closed=history):
         arrow = "->" if n["direction"] == "out" else "<-"
-        lines.append(f"- {arrow} {n['rel']} {arrow} {n['other']} ({n['other_type']})")
+        line = f"- {arrow} {n['rel']} {arrow} {n['other']} ({n['other_type']})"
+        if n.get("t_valid"):
+            line += f" (from {n['t_valid'][:10]})"
+        if n.get("t_invalid"):
+            line += f" (ENDED {n['t_invalid'][:10]})"
+        lines.append(line)
     return "\n".join(lines)

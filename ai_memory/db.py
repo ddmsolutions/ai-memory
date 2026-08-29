@@ -93,12 +93,14 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
 # edit that only fresh stores receive.
-MIGRATIONS: dict[int, list[str]] = {
+# Entries are SQL strings, or callables taking the connection for changes
+# needing their own idempotence guard (table rebuilds).
+MIGRATIONS: dict[int, list] = {
     2: [
         # Session-level injection dedup: a row injected once (pack or turn)
         # is not injected again that session (FR-R5).
@@ -260,7 +262,58 @@ MIGRATIONS: dict[int, list[str]] = {
         "ALTER TABLE memories ADD COLUMN origin TEXT NOT NULL DEFAULT 'agent'"
         " CHECK (origin IN ('owner','agent','external'))",
     ],
+    # #68: valid-time windows on edges. A callable migration: the table-level
+    # UNIQUE(src,dst,rel) must widen to include t_valid (recurring
+    # relationships: left, rejoined), which SQLite only allows via rebuild,
+    # and a rebuild needs an idempotence guard plain SQL cannot express.
+    14: [lambda conn: _rebuild_edges_with_validity(conn)],
 }
+
+
+def _rebuild_edges_with_validity(conn: sqlite3.Connection) -> None:
+    """#68: rebuild edges with t_valid/t_invalid and UNIQUE(src,dst,rel,t_valid).
+
+    t_valid '' means 'window opened at an unknown time' (the workspace-proven
+    convention), keeping NOT NULL so the uniqueness key stays total. Closing a
+    window sets t_invalid; closed edges are excluded from default reads but
+    never deleted (non-destructive invalidation).
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(edges)")}
+    if "t_valid" in cols:
+        return  # version-stripped store re-running migrations: already rebuilt
+    conn.execute(
+        """CREATE TABLE edges_new (
+             id         INTEGER PRIMARY KEY,
+             src        INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+             dst        INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+             rel        TEXT NOT NULL,
+             weight     REAL NOT NULL DEFAULT 1.0,
+             memory_id  INTEGER REFERENCES memories(id) ON DELETE SET NULL,
+             t_valid    TEXT NOT NULL DEFAULT '',
+             t_invalid  TEXT,
+             created_at TEXT NOT NULL DEFAULT (datetime('now')),
+             UNIQUE (src, dst, rel, t_valid)
+           )"""
+    )
+    conn.execute(
+        "INSERT INTO edges_new (id, src, dst, rel, weight, memory_id, created_at)"
+        " SELECT id, src, dst, rel, weight, memory_id, created_at FROM edges"
+    )
+    # The view must go before the rename: ALTER re-parses dependent views.
+    conn.execute("DROP VIEW IF EXISTS v_edges_named")
+    conn.execute("DROP TABLE edges")
+    conn.execute("ALTER TABLE edges_new RENAME TO edges")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_src ON edges(src)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_dst ON edges(dst)")
+    conn.execute(
+        "CREATE VIEW v_edges_named AS"
+        "  SELECT e.id, s.name AS src_name, s.etype AS src_etype, e.rel,"
+        "         d.name AS dst_name, d.etype AS dst_etype, e.weight, e.memory_id,"
+        "         e.t_valid, e.t_invalid, e.created_at"
+        "    FROM edges e"
+        "    JOIN entities s ON s.id = e.src"
+        "    JOIN entities d ON d.id = e.dst"
+    )
 
 
 class MigrationError(RuntimeError):
@@ -325,7 +378,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
                 version = current
                 continue
             for statement in MIGRATIONS[target]:
-                if not _already_applied(conn, statement):
+                if callable(statement):
+                    statement(conn)
+                elif not _already_applied(conn, statement):
                     conn.execute(statement)
             conn.execute(f"PRAGMA user_version = {int(target)}")
             conn.commit()
