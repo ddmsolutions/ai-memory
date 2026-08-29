@@ -48,6 +48,17 @@ Everything below delivered except where marked; details in CHANGELOG.md.
 
 The ladder, in build order: self-tuning parameters, self-generating evals, gated autonomous consolidation, self-maintenance observer, policy learning. Governing rule (FR-SL6): every loop is judged by a metric it cannot modify and is switched off if it does not move it. Two autonomy decisions pending with the owner: consolidation's write autonomy over live store content, and whether the observer posts issues unattended or drafts for review.
 
+## v0.8 - SHIPPED 2026-08-29 (research hardening)
+
+Twelve issues from the agent-memory field research (TMA-NM laundering proof,
+FSFM forgetting taxonomy, dedupe-not-summarise, Graphiti valid-time) and the
+workspace-engine schema comparison. All delivered; details in CHANGELOG.md:
+origin trust + Biba non-elevation (#64), quarantine cascade + policy sweep
+(#65), LongMemEval adapter (#66), dedupe-first consolidation + summarise
+(#67), edge validity windows (#68), entity aliases + merge (#69), graph type
+registry (#70), edge provenance + evidence sets (#71), mention roles (#72),
+entity refs (#73), line_hash idempotence + sqlite-vec (#74), MCP server (#61).
+
 ## Later
 
 - [SHIPPED 2026-08-25, v0.4] Handoff (working) memory: a session-continuity row ("state of play: migration half done, tests 3 and 7 failing") written by a dying session, consumed by the next, then discarded, never consolidated. Distinct lifecycle: one writer, one reader.

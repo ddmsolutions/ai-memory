@@ -1,5 +1,73 @@
 # Changelog
 
+## v0.8.0 - 2026-08-29
+
+The research-hardening release: twelve issues from the 2026-08-29 agent-memory
+field research and the workspace-engine schema comparison, in one branch.
+Migrations 12-19; every store upgrades in place (snapshot taken first).
+
+### Added
+- Origin trust levels (#64): `memories.origin` ('owner'|'agent'|'external')
+  bound at write time; promotion inherits (Biba non-elevation - a rewrite
+  cannot launder external content into trusted memory); recall ranks by
+  origin weight and marks external rows; `trust <id> --origin X` is the only
+  elevation path (human-invoked); memo syntax `origin: external`
+  (downgrade-only - a memo claiming owner is ignored); lint suggests
+  elevation for independently corroborated external rows
+- Safety-triggered forgetting (#65): `quarantine <id>` cascades over the
+  contamination set (promoted_from children + derives_from links,
+  transitive) and suspends machine-sourced edges whose whole evidence set is
+  contaminated; `policy sweep <regex>` retro-sweeps active rows a hostile
+  pattern matches; nothing deleted, everything reviewable via policy
+  release/hostile
+- LongMemEval retrieval adapter (#66): `bench/longmemeval.py` runs the
+  benchmark's haystacks through the REAL insert funnel and production hybrid
+  search, reporting evidence recall@k + MRR per question type with the
+  overfitting caveat embedded; dataset downloaded separately
+- Dedupe-first consolidation (#67): promote() refuses non-episodic sources
+  (no summary-of-summary chains; lint catches legacy ones); `summarise`
+  consolidates a cluster with every original linked derives_from and the
+  least-trusted origin carried; autoconsolidate attaches an episode as
+  evidence of an existing identical durable row instead of forking a rewrite
+- Valid-time windows on entity edges (#68): t_valid/t_invalid with
+  UNIQUE(src,dst,rel,t_valid) - the same relationship can recur;
+  supersession closes windows, never deletes; `entity close`, `entity link
+  --from/--replaces`, `entity show --history`; valid-time only,
+  bitemporality stays excluded
+- Entity aliases + merge (#69): entity_aliases (normalised lookup keys) +
+  merge tombstones; resolution order exact canonical > alias >
+  suffix-stripped SUGGESTION; ambiguity returns the candidate set
+  interactively and links NOTHING headlessly (lint: ambiguous_alias);
+  `entity alias add/list/remove`, `entity resolve`, `entity merge`;
+  purge-by-alias reaches the canonical entity
+- Graph type registry (#70): governed ontology (is_a hierarchy, abstract,
+  symmetric, endpoint constraints, retired) seeded with a generic core;
+  permissive by default with lint findings, `graph_strict` refuses at write;
+  `entity type list/add/retire`
+- Edge provenance (#71): edges carry source channel
+  ('manual'|'consolidate'|'extract'), per-channel confidence, status, and an
+  edge_sources evidence set; deterministic corroboration reinforcement;
+  `entity why src dst --rel`; lint: edge_evidence_gone
+- Mention roles (#72): memory_entities.role ('subject'|'mentioned') +
+  confidence; first entity on an entities: line is the subject; about-X
+  ranks subject rows first; upgrade-only, promote inherits
+- External identity refs (#73): entity_refs (kind,value) unique store-wide -
+  what an entity IS vs what it is CALLED (#69); conflicting ref errors with
+  a merge suggestion; `entity ref add/list`, `entity resolve kind=value`
+- Capture idempotence + ANN (#74): memories.line_hash (partial unique) makes
+  capture/import re-runnable (session-bound: same memo from another session
+  is corroboration, not a duplicate); optional sqlite-vec vec0 index behind
+  semantic search, JSON-scan fail-soft; `[vec]` extra
+- MCP server (#61): `ai_memory_mcp/` package (`[mcp]` extra, `python -m
+  ai_memory_mcp`), 21 tools over the same funnel/quarantine/scope
+  invariants; destructive + self-learning surfaces deliberately absent;
+  plugin.json ships the mcpServers entry; separate CI job
+
+### Changed
+- Migration engine accepts callable entries for guarded table rebuilds
+- Export/import round-trips every new table and sanitises invented trust
+  (origins and edge sources)
+
 ## v0.6.10 - 2026-08-28
 
 ### Fixed
