@@ -112,10 +112,15 @@ def build_parser() -> argparse.ArgumentParser:
     eg.add_argument("--out", type=Path, default=Path("evals/generated.json"))
     eg.add_argument("--days", type=int, default=30)
 
-    pr = sub.add_parser("promote", help="promote an episodic into semantic/procedural")
+    pr = sub.add_parser("promote", help="promote an episodic into semantic/procedural (verbatim by default, #67)")
     pr.add_argument("id", type=int)
     pr.add_argument("--type", dest="mtype", required=True, choices=("semantic", "procedural"))
     pr.add_argument("--content", help="rewritten distilled content (defaults to original)")
+
+    sm = sub.add_parser("summarise", help="#67: consolidate a CLUSTER of episodes into one durable row, originals kept linked")
+    sm.add_argument("ids", type=int, nargs="+", help="2+ episodic memory ids")
+    sm.add_argument("--type", dest="mtype", required=True, choices=("semantic", "procedural"))
+    sm.add_argument("--content", required=True, help="the cluster summary")
 
     e = sub.add_parser("entity", help="entity graph operations")
     esub = e.add_subparsers(dest="entity_command", required=True)
@@ -619,8 +624,19 @@ def main(argv: list[str] | None = None) -> int:
         for row in rows:
             print(f"{verb} #{row['id']} {row['created_at']} {row['content']}")
     elif args.command == "promote":
-        new_id = store.promote(conn, args.id, args.mtype, content=args.content)
+        try:
+            new_id = store.promote(conn, args.id, args.mtype, content=args.content)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
         print(f"promoted #{args.id} -> #{new_id} ({args.mtype})")
+    elif args.command == "summarise":
+        try:
+            new_id = store.summarise(conn, args.ids, args.mtype, args.content)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"summarised {args.ids} -> #{new_id} ({args.mtype}), originals linked")
     elif args.command == "entity":
         try:
             return _entity_command(conn, args)

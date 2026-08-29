@@ -825,6 +825,14 @@ def promote(
     row = conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
     if row is None:
         raise ValueError(f"no memory with id {memory_id}")
+    # #67: re-consolidation works from ORIGINALS. Promoting a promoted row
+    # would start a summary-of-summary chain, the compounding-error failure
+    # mode; distil again from the episodic sources instead.
+    if row["type"] != "episodic":
+        raise ValueError(
+            f"promote source must be episodic (#{memory_id} is {row['type']});"
+            " re-distil from the original episodes, never from a summary"
+        )
     # #64 Biba non-elevation: the distilled row inherits its source's origin.
     # A rewrite cannot launder external content into owner-trusted memory;
     # elevation is the human `trust` command only.
@@ -850,6 +858,50 @@ def promote(
         (new_id, memory_id),
     )
     conn.execute("UPDATE memories SET consolidated = 1 WHERE id = ?", (memory_id,))
+    conn.commit()
+    return new_id
+
+
+def summarise(
+    conn: sqlite3.Connection, memory_ids: list[int], mtype: str, content: str
+) -> int:
+    """#67: consolidate a CLUSTER (3+ related episodes) into one durable row.
+    Every original stays linked via derives_from, so the summary is checkable
+    and re-consolidation can always return to the sources. Single memos should
+    promote verbatim via promote(), not through here."""
+    if mtype not in ("semantic", "procedural"):
+        raise ValueError("summarise target must be semantic or procedural")
+    if len(memory_ids) < 2:
+        raise ValueError("summarise needs 2+ sources; promote a single memo verbatim")
+    rows = conn.execute(
+        f"SELECT * FROM memories WHERE id IN ({','.join('?' * len(memory_ids))})",
+        memory_ids,
+    ).fetchall()
+    if len(rows) != len(set(memory_ids)):
+        raise ValueError("unknown memory id in the cluster")
+    for row in rows:
+        if row["type"] != "episodic":
+            raise ValueError(
+                f"#{row['id']} is {row['type']}: summaries build on originals only (#67)"
+            )
+    # #64 Biba: the summary carries the LEAST trusted origin among sources.
+    origin = _least_trusted(*(r["origin"] for r in rows))
+    scope = rows[0]["scope"]
+    new_id = remember(conn, content, mtype=mtype, scope=scope,
+                      promoted_from=rows[0]["id"], origin=origin)
+    qmarks = ",".join("?" * len(memory_ids))
+    conn.execute(
+        f"UPDATE memories SET consolidated = 1 WHERE id IN ({qmarks})", memory_ids
+    )
+    for row in rows:
+        link_memories(conn, new_id, row["id"], "derives_from", weight=0.8)
+        # mentions union: the summary knows everything its sources were about
+        conn.execute(
+            "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, role, confidence)"
+            " SELECT ?, entity_id, role, confidence FROM memory_entities"
+            " WHERE memory_id = ?",
+            (new_id, row["id"]),
+        )
     conn.commit()
     return new_id
 
@@ -1025,6 +1077,18 @@ def lint(conn: sqlite3.Connection) -> list[dict]:
             "ids": f"{pair['id']},{pair['peer']}",
             "detail": f"independently corroborated; consider: trust {pair['id']}"
                       f" --origin agent ({pair['content'][:60]})",
+        })
+    # #67: a summary promoted from another summary compounds rewrite error;
+    # promote() now refuses it, this catches legacy chains.
+    for row in conn.execute(
+        "SELECT child.id, child.content FROM memories child"
+        " JOIN memories parent ON parent.id = child.promoted_from"
+        " WHERE parent.promoted_from IS NOT NULL AND child.superseded_by IS NULL"
+    ):
+        findings.append({
+            "issue": "summary_of_summary", "ids": str(row["id"]),
+            "detail": f"promoted from a promoted row: {row['content'][:70]}"
+                      " (re-distil from the original episodes)",
         })
     # #70: type governance. Unregistered or retired types are warnings (the
     # default mode is permissive); endpoint violations mean the edge claims a
