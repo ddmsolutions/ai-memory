@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.8.6 - 2026-08-29
+
+### Changed
+- Viewer: the relation filter is now a tickbox list matching the entity-type
+  filter - multiple relation types combine, per-rel counts shown, all on by
+  default - replacing the single-select dropdown.
+
 ## v0.8.5 - 2026-08-29
 
 ### Added
