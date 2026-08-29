@@ -78,6 +78,32 @@ def validate(conn: sqlite3.Connection, regex: str) -> dict:
     }
 
 
+def sweep(conn: sqlite3.Connection, regex: str, dry_run: bool = False) -> dict:
+    """#65 safety-triggered forgetting: quarantine-cascade every ACTIVE row a
+    hostile pattern matches. Human-invoked (running it is the approval); each
+    hit takes its promotion/derivation descendants with it via
+    store.quarantine_cascade, and machine edges lose standing with them."""
+    try:
+        rx = re.compile(regex)
+    except re.error as exc:
+        raise ValueError(f"bad regex: {exc}") from exc
+    from . import store
+
+    hits = [
+        row["id"] for row in conn.execute(
+            "SELECT id, content FROM memories WHERE scope <> 'quarantine'")
+        if rx.search(row["content"])
+    ]
+    swept: list[int] = []
+    edges = 0
+    for memory_id in hits:
+        report = store.quarantine_cascade(conn, memory_id, dry_run=dry_run)
+        swept.extend(report["memories"])
+        edges += report["edges_suspended"]
+    return {"pattern_hits": hits, "quarantined": sorted(set(swept)),
+            "edges_suspended": edges, "dry_run": dry_run}
+
+
 def adopt(regex: str, label: str, kind: str = "instruction", path: Path | None = None) -> Path:
     """Append an approved pattern to config (previous file kept at .prev)."""
     from . import tuning

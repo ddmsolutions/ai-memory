@@ -726,6 +726,63 @@ def set_pin(conn: sqlite3.Connection, memory_id: int, pinned: bool) -> None:
     conn.commit()
 
 
+def contamination_set(conn: sqlite3.Connection, memory_id: int) -> list[int]:
+    """#65: the transitive closure of everything derived from a memory -
+    promotion children (promoted_from) and derivation links (derives_from),
+    followed recursively. The root is included."""
+    seen: set[int] = set()
+    frontier = [memory_id]
+    while frontier:
+        current = frontier.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        for row in conn.execute(
+            "SELECT id FROM memories WHERE promoted_from = ?", (current,)
+        ):
+            frontier.append(row["id"])
+        # src derives_from dst: src was derived from dst, so contamination
+        # flows dst -> src.
+        for row in conn.execute(
+            "SELECT src_memory FROM memory_links WHERE dst_memory = ?"
+            " AND rel = 'derives_from'",
+            (current,),
+        ):
+            frontier.append(row["src_memory"])
+    return sorted(seen)
+
+
+def quarantine_cascade(
+    conn: sqlite3.Connection, memory_id: int, dry_run: bool = False
+) -> dict:
+    """#65 safety-triggered forgetting: quarantine a memory AND everything
+    promoted or derived from it, and suspend machine-sourced graph edges whose
+    entire evidence set is contaminated. Nothing is deleted: quarantine is
+    reviewable (policy release / policy hostile), deletion is the human's call.
+    """
+    if conn.execute("SELECT 1 FROM memories WHERE id = ?", (memory_id,)).fetchone() is None:
+        raise ValueError(f"no memory with id {memory_id}")
+    ids = contamination_set(conn, memory_id)
+    pinned = [
+        r["id"] for r in conn.execute(
+            f"SELECT id FROM memories WHERE pinned = 1 AND id IN"
+            f" ({','.join('?' * len(ids))})", ids)
+    ]
+    report = {"memories": ids, "pinned_included": pinned, "dry_run": dry_run,
+              "edges_suspended": 0}
+    if dry_run:
+        return report
+    qmarks = ",".join("?" * len(ids))
+    conn.execute(
+        f"UPDATE memories SET scope = 'quarantine' WHERE id IN ({qmarks})", ids
+    )
+    from . import graph as _graph
+
+    report["edges_suspended"] = _graph.suspend_edges_for_memories(conn, ids)
+    conn.commit()
+    return report
+
+
 def set_trust(conn: sqlite3.Connection, memory_id: int, origin: str) -> dict:
     """#64: the ONLY elevation path, and it is human-invoked (running the
     command is the approval, like `policy adopt`). Downgrades are always

@@ -54,6 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
     tru.add_argument("id", type=int)
     tru.add_argument("--origin", required=True, choices=store.ORIGINS)
 
+    q = sub.add_parser("quarantine", help="quarantine a memory AND everything derived from it (#65); review with policy release/hostile")
+    q.add_argument("id", type=int)
+    q.add_argument("--dry-run", action="store_true", help="list the contamination set, change nothing")
+
     c = sub.add_parser("consolidate", help="list unconsolidated episodics (distil with promote)")
     c.add_argument("--limit", type=int, default=50)
 
@@ -96,6 +100,9 @@ def build_parser() -> argparse.ArgumentParser:
     poa.add_argument("regex")
     poa.add_argument("--label", required=True)
     poa.add_argument("--kind", choices=("instruction", "secret"), default="instruction")
+    posw = posub.add_parser("sweep", help="#65: quarantine-cascade active rows a hostile pattern matches (human-invoked)")
+    posw.add_argument("regex")
+    posw.add_argument("--dry-run", action="store_true")
 
     ac = sub.add_parser("autoconsolidate", help="gated hygiene pass: snapshot, dedupe, triage, decay, regression check")
     ac.add_argument("--questions", type=Path, help="eval set for the regression gate (strongly recommended)")
@@ -282,6 +289,19 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return 1
         print(f"#{report['id']} origin: {report['before']} -> {report['after']}")
+    elif args.command == "quarantine":
+        try:
+            report = store.quarantine_cascade(conn, args.id, dry_run=args.dry_run)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        verb = "would quarantine" if args.dry_run else "quarantined"
+        print(f"{verb} {len(report['memories'])} memories"
+              f" ({','.join(str(i) for i in report['memories'])}),"
+              f" suspended {report['edges_suspended']} edges")
+        if report["pinned_included"]:
+            print(f"NOTE: includes pinned {report['pinned_included']} (safety wins;"
+                  " release with: policy release <id>)")
     elif args.command == "consolidate":
         rows = store.unconsolidated(conn, limit=args.limit)
         if not rows:
@@ -355,6 +375,8 @@ def main(argv: list[str] | None = None) -> int:
                     return 1
                 target = policy.adopt(args.regex, args.label, kind=args.kind)
                 print(f"adopted into {target} (revert with: tune --revert)")
+            elif args.policy_command == "sweep":
+                print(json.dumps(policy.sweep(conn, args.regex, dry_run=args.dry_run), indent=2))
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
