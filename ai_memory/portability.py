@@ -195,10 +195,13 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
 
     for me in data.get("memory_entities", []):
         if me["memory_id"] in mem_map and me["entity_id"] in ent_map:
+            role = me.get("role")
             conn.execute(
-                "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, created_at)"
-                " VALUES (?,?,?)",
-                (mem_map[me["memory_id"]], ent_map[me["entity_id"]], me["created_at"]),
+                "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, role,"
+                " confidence, created_at) VALUES (?,?,?,?,?)",
+                (mem_map[me["memory_id"]], ent_map[me["entity_id"]],
+                 role if role in ("subject", "mentioned") else "mentioned",
+                 me.get("confidence", 0.7), me["created_at"]),
             )
 
     for link in data.get("memory_links", []):

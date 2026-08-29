@@ -93,7 +93,7 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
@@ -371,6 +371,20 @@ MIGRATIONS: dict[int, list] = {
         " ('edge','has_role',NULL,0,0,NULL,'role','reified edge pattern'),"
         " ('edge','with',NULL,0,0,'role',NULL,'reified edge pattern'),"
         " ('edge','related_to',NULL,0,1,NULL,NULL,'weak symmetric link')",
+    ],
+    19: [
+        # #72: mention roles. 'subject' (the memory is ABOUT this entity)
+        # outranks 'mentioned' (appears in passing) on every about-X surface.
+        # Existing mentions stay 'mentioned' - the honest backfill default.
+        "ALTER TABLE memory_entities ADD COLUMN role TEXT NOT NULL DEFAULT 'mentioned'"
+        " CHECK (role IN ('subject','mentioned'))",
+        "ALTER TABLE memory_entities ADD COLUMN confidence REAL NOT NULL DEFAULT 0.7",
+        "DROP VIEW IF EXISTS v_entity_memories",
+        "CREATE VIEW v_entity_memories AS"
+        "  SELECT e.name AS entity_name, e.etype, me.entity_id, me.role AS mention_role, m.*"
+        "  FROM memory_entities me"
+        "  JOIN entities e ON e.id = me.entity_id"
+        "  JOIN v_active_memories m ON m.id = me.memory_id",
     ],
 }
 

@@ -573,9 +573,11 @@ def mention_from_content(conn: sqlite3.Connection, memory_id: int, content: str)
     #69: this is a HEADLESS path - an ambiguous alias links nothing (a wrong
     merge is worse than a missed mention); lint surfaces ambiguous aliases."""
     added = 0
-    for name in parse_entity_names(content):
+    for position, name in enumerate(parse_entity_names(content)):
         try:
-            mention(conn, memory_id, name)
+            # #72: the FIRST entity on the entities: line is the subject.
+            mention(conn, memory_id, name,
+                    role="subject" if position == 0 else "mentioned")
         except AmbiguousEntity:
             continue
         added += 1
@@ -605,15 +607,26 @@ def mention(
     memory_id: int,
     entity_name: str,
     etype: str | None = None,
+    role: str = "mentioned",
+    confidence: float = 0.7,
 ) -> int:
-    """FR-N1: link a memory to an entity it mentions, auto-creating the entity."""
+    """FR-N1: link a memory to an entity it mentions, auto-creating the entity.
+    #72: role 'subject' means the memory is ABOUT the entity; a repeat mention
+    may upgrade mentioned -> subject but never silently downgrades."""
+    if role not in ("subject", "mentioned"):
+        raise ValueError("role must be subject or mentioned")
     if conn.execute("SELECT 1 FROM memories WHERE id = ?", (memory_id,)).fetchone() is None:
         raise ValueError(f"no memory with id {memory_id}")
     ent = find_entity(conn, entity_name)
     entity_id = ent["id"] if ent else add_entity(conn, entity_name, etype=etype or "thing")
     conn.execute(
-        "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id) VALUES (?, ?)",
-        (memory_id, entity_id),
+        "INSERT INTO memory_entities (memory_id, entity_id, role, confidence)"
+        " VALUES (?, ?, ?, ?)"
+        " ON CONFLICT(memory_id, entity_id) DO UPDATE SET"
+        " role = CASE WHEN excluded.role = 'subject' THEN 'subject'"
+        " ELSE memory_entities.role END,"
+        " confidence = MAX(memory_entities.confidence, excluded.confidence)",
+        (memory_id, entity_id, role, confidence),
     )
     conn.commit()
     return entity_id
@@ -627,9 +640,11 @@ def memories_about(conn: sqlite3.Connection, entity_name: str) -> list[sqlite3.R
     if ent is None:
         return []
     return conn.execute(
-        "SELECT m.* FROM memory_entities me"
+        "SELECT m.*, me.role AS mention_role FROM memory_entities me"
         " JOIN v_active_memories m ON m.id = me.memory_id"
-        " WHERE me.entity_id = ? ORDER BY m.created_at DESC",
+        " WHERE me.entity_id = ?"
+        # #72: memories ABOUT the entity outrank passing mentions.
+        " ORDER BY (me.role = 'subject') DESC, m.created_at DESC",
         (ent["id"],),
     ).fetchall()
 

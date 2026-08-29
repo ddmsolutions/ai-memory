@@ -845,8 +845,8 @@ def promote(
     # capture writes mentions, and distillation output carries no entities:
     # line, so without this every promoted fact drops out of the entity graph.
     conn.execute(
-        "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id)"
-        " SELECT ?, entity_id FROM memory_entities WHERE memory_id = ?",
+        "INSERT OR IGNORE INTO memory_entities (memory_id, entity_id, role, confidence)"
+        " SELECT ?, entity_id, role, confidence FROM memory_entities WHERE memory_id = ?",
         (new_id, memory_id),
     )
     conn.execute("UPDATE memories SET consolidated = 1 WHERE id = ?", (memory_id,))

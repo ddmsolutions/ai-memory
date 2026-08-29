@@ -145,6 +145,8 @@ def build_parser() -> argparse.ArgumentParser:
     em.add_argument("memory_id", type=int)
     em.add_argument("name")
     em.add_argument("--etype", default=None)
+    em.add_argument("--subject", action="store_true",
+                    help="#72: the memory is ABOUT this entity, not a passing mention")
     eab = esub.add_parser("about", help="everything we know about an entity")
     eab.add_argument("name")
     ew = esub.add_parser("why", help="why we believe an edge: windows, source, evidence (#71)")
@@ -298,8 +300,10 @@ def _entity_command(conn, args) -> int:
     elif args.entity_command == "show":
         print(graph.describe(conn, args.name, history=args.history))
     elif args.entity_command == "mention":
-        graph.mention(conn, args.memory_id, args.name, etype=args.etype)
-        print(f"memory #{args.memory_id} mentions {args.name}")
+        role = "subject" if args.subject else "mentioned"
+        graph.mention(conn, args.memory_id, args.name, etype=args.etype, role=role)
+        verb = "is about" if args.subject else "mentions"
+        print(f"memory #{args.memory_id} {verb} {args.name}")
     elif args.entity_command == "role":
         try:
             graph.add_role(conn, args.holder, args.title, org=args.org)
