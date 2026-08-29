@@ -34,6 +34,7 @@ def export_store(conn: sqlite3.Connection) -> dict:
         "memories": rows("SELECT * FROM memories ORDER BY id"),
         "entities": rows("SELECT * FROM entities ORDER BY id"),
         "entity_aliases": rows("SELECT * FROM entity_aliases"),
+        "entity_refs": rows("SELECT * FROM entity_refs"),
         "edges": rows("SELECT * FROM edges ORDER BY id"),
         "edge_sources": rows("SELECT * FROM edge_sources"),
         "memory_entities": rows("SELECT * FROM memory_entities"),
@@ -133,6 +134,14 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
                 " source) VALUES (?,?,?,?)",
                 (ent_map[a["entity_id"]], a["alias_norm"], a["alias_raw"],
                  a.get("source", "manual")),
+            )
+    # #73: refs are unique store-wide; a conflicting incoming ref is skipped
+    # (the local holder wins - resolve the split with entity merge).
+    for r in data.get("entity_refs", []):
+        if r["entity_id"] in ent_map:
+            conn.execute(
+                "INSERT OR IGNORE INTO entity_refs (entity_id, kind, value) VALUES (?,?,?)",
+                (ent_map[r["entity_id"]], r["kind"], r["value"]),
             )
 
     edge_map: dict[int, int] = {}

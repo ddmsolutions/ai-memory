@@ -161,8 +161,15 @@ def build_parser() -> argparse.ArgumentParser:
     ealr = ealsub.add_parser("remove")
     ealr.add_argument("alias")
     ealr.add_argument("canonical")
-    erz = esub.add_parser("resolve", help="resolve a name: canonical > alias > fuzzy suggestion")
+    erz = esub.add_parser("resolve", help="resolve a name (or kind=value ref): ref > canonical > alias > fuzzy suggestion")
     erz.add_argument("name")
+    erf2 = esub.add_parser("ref", help="hard identifiers: what an entity IS (#73)")
+    erfsub = erf2.add_subparsers(dest="ref_command", required=True)
+    erfa = erfsub.add_parser("add")
+    erfa.add_argument("name")
+    erfa.add_argument("ref", help="kind=value, e.g. domain=ddmsolutions.co.uk")
+    erfl = erfsub.add_parser("list")
+    erfl.add_argument("name")
     emg = esub.add_parser("merge", help="merge a split entity: repoint mentions/edges, loser becomes an alias + redirect")
     emg.add_argument("loser")
     emg.add_argument("winner")
@@ -325,7 +332,38 @@ def _entity_command(conn, args) -> int:
         except (ValueError, graph.AmbiguousEntity) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
+    elif args.entity_command == "ref":
+        try:
+            if args.ref_command == "add":
+                if "=" not in args.ref:
+                    print("error: ref must be kind=value", file=sys.stderr)
+                    return 1
+                kind, value = args.ref.split("=", 1)
+                eid = graph.add_ref(conn, args.name, kind, value)
+                print(f"{kind.strip().lower()}={value.strip()} -> {args.name} (#{eid})")
+            else:
+                ent = graph.find_entity(conn, args.name)
+                if ent is None:
+                    print(f"error: no entity '{args.name}'", file=sys.stderr)
+                    return 1
+                rows = graph.entity_refs(conn, ent["id"])
+                if not rows:
+                    print(f"no refs for {ent['name']}")
+                for row in rows:
+                    print(f"{row['kind']}={row['value']}")
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
     elif args.entity_command == "resolve":
+        # #73: a kind=value input resolves by ref, which is authoritative.
+        if "=" in args.name:
+            kind, value = args.name.split("=", 1)
+            ent = graph.resolve_ref(conn, kind, value)
+            if ent is not None:
+                print(f"resolved by ref: #{ent['id']} {ent['name']} ({ent['etype']})")
+            else:
+                print(f"no entity holds {args.name}")
+            return 0
         result = graph.resolve(conn, args.name)
         if result["entity"] is not None:
             e = result["entity"]

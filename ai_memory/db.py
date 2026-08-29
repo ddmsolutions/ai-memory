@@ -93,7 +93,7 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
@@ -307,6 +307,21 @@ MIGRATIONS: dict[int, list] = {
              PRIMARY KEY (entity_id, alias_norm)
            )""",
         "CREATE INDEX IF NOT EXISTS ix_alias_norm ON entity_aliases(alias_norm)",
+    ],
+    17: [
+        # #73: external identity refs - what an entity IS (company number,
+        # domain, email, CRM id), where aliases are what it is CALLED. A ref
+        # is authoritative and unique across the store: two entities claiming
+        # the same ref is definitionally a split entity (merge, not insert).
+        """CREATE TABLE IF NOT EXISTS entity_refs (
+             entity_id  INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+             kind       TEXT NOT NULL,
+             value      TEXT NOT NULL,
+             created_at TEXT NOT NULL DEFAULT (datetime('now')),
+             PRIMARY KEY (entity_id, kind, value),
+             UNIQUE (kind, value)
+           )""",
+        "CREATE INDEX IF NOT EXISTS ix_refs_kind_value ON entity_refs(kind, value)",
     ],
 }
 

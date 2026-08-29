@@ -154,6 +154,49 @@ def add_alias(
     return ent["id"]
 
 
+def add_ref(conn: sqlite3.Connection, name: str, kind: str, value: str) -> int:
+    """#73: attach a hard identifier (domain, company number, email, CRM id)
+    to an entity. Refs are authoritative and unique: a second entity claiming
+    the same ref is a split entity - the error says merge, not insert."""
+    ent = find_entity(conn, name)
+    if ent is None:
+        raise ValueError(f"no entity named '{name}'")
+    kind = kind.strip().lower()
+    value = value.strip()
+    if not kind or not value:
+        raise ValueError("ref needs a kind and a value")
+    holder = resolve_ref(conn, kind, value)
+    if holder is not None and holder["id"] != ent["id"]:
+        raise ValueError(
+            f"{kind}={value} already identifies '{holder['name']}' (#{holder['id']});"
+            f" if these are the same entity: entity merge '{ent['name']}' '{holder['name']}'"
+        )
+    conn.execute(
+        "INSERT OR IGNORE INTO entity_refs (entity_id, kind, value) VALUES (?, ?, ?)",
+        (ent["id"], kind, value),
+    )
+    conn.commit()
+    return ent["id"]
+
+
+def resolve_ref(conn: sqlite3.Connection, kind: str, value: str) -> sqlite3.Row | None:
+    """#73: a ref match is authoritative - it resolves what an entity IS.
+    Merged tombstones redirect to the survivor."""
+    row = conn.execute(
+        "SELECT e.* FROM entity_refs r JOIN entities e ON e.id = r.entity_id"
+        " WHERE r.kind = ? AND r.value = ?",
+        (kind.strip().lower(), value.strip()),
+    ).fetchone()
+    return _follow_merge(conn, row) if row is not None else None
+
+
+def entity_refs(conn: sqlite3.Connection, entity_id: int) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT kind, value FROM entity_refs WHERE entity_id = ? ORDER BY kind",
+        (entity_id,),
+    ).fetchall()
+
+
 def merge_entities(conn: sqlite3.Connection, loser_name: str, winner_name: str) -> dict:
     """#69: retroactive repair for a split entity. Repoints mentions and
     edges, moves aliases, demotes the loser's name to an alias of the winner,
@@ -181,6 +224,12 @@ def merge_entities(conn: sqlite3.Connection, loser_name: str, winner_name: str) 
         (wid, lid),
     )
     conn.execute("DELETE FROM entity_aliases WHERE entity_id = ?", (lid,))
+    # #73: hard identifiers follow the survivor.
+    conn.execute(
+        "UPDATE OR IGNORE entity_refs SET entity_id = ? WHERE entity_id = ?",
+        (wid, lid),
+    )
+    conn.execute("DELETE FROM entity_refs WHERE entity_id = ?", (lid,))
     conn.execute(
         "INSERT OR IGNORE INTO entity_aliases (entity_id, alias_norm, alias_raw, source)"
         " VALUES (?, ?, ?, 'merge')",
@@ -641,6 +690,9 @@ def describe(conn: sqlite3.Connection, name: str, history: bool = False) -> str:
     lines = [f"**{ent['name']}** ({ent['etype']})"]
     if ent["summary"]:
         lines.append(ent["summary"])
+    refs = entity_refs(conn, ent["id"])
+    if refs:
+        lines.append("refs: " + ", ".join(f"{r['kind']}={r['value']}" for r in refs))
     for n in neighbours(conn, name, include_closed=history):
         arrow = "->" if n["direction"] == "out" else "<-"
         line = f"- {arrow} {n['rel']} {arrow} {n['other']} ({n['other_type']})"
