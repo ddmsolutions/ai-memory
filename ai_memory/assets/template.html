@@ -8,7 +8,14 @@
   body { margin: 0; font: 13px/1.4 system-ui, sans-serif; background: #101418; color: #d8dee6; }
   #graph { position: absolute; inset: 0; }
   #panel { position: absolute; top: 10px; left: 10px; width: 240px; background: #1a2027ee;
-           border: 1px solid #2c3540; border-radius: 8px; padding: 10px 12px; z-index: 5; }
+           border: 1px solid #2c3540; border-radius: 8px; padding: 10px 12px; z-index: 5;
+           max-height: 92vh; overflow: auto; }
+  #etypef { max-height: 150px; overflow: auto; border: 1px solid #2c3540; border-radius: 4px;
+            padding: 4px 6px; }
+  #etypef label { font-size: 12px; }
+  .preset { background: #232c36; color: #d8dee6; border: 1px solid #2c3540; border-radius: 4px;
+            padding: 2px 7px; margin: 0 3px 3px 0; cursor: pointer; font-size: 11px; }
+  .preset:hover { background: #2c3540; }
   #detail { position: absolute; top: 10px; right: 10px; width: 300px; max-height: 85vh; overflow: auto;
             background: #1a2027ee; border: 1px solid #2c3540; border-radius: 8px; padding: 10px 12px;
             z-index: 5; display: none; }
@@ -34,6 +41,19 @@
   <label><input type="checkbox" class="kindf" value="episodic" checked> episodic</label>
   <label><input type="checkbox" class="kindf" value="entity" checked> entities</label>
   <label><input type="checkbox" class="kindf" value="role" checked> roles</label>
+  <label><input type="checkbox" id="memf" checked> memory nodes</label>
+  <h4>Presets</h4>
+  <div id="presets">
+    <button class="preset" data-preset="professional">professional</button>
+    <button class="preset" data-preset="personal">personal</button>
+    <button class="preset" data-preset="infra">infrastructure</button>
+    <button class="preset" data-preset="everything">everything</button>
+  </div>
+  <h4>Entity types <span id="etcount" class="hint"></span></h4>
+  <div id="etypef"></div>
+  <h4>Connections <span id="degval" class="hint">2 to any</span></h4>
+  <input type="range" id="degmin" min="0" max="10" step="1" value="2">
+  <input type="range" id="degmax" min="0" max="900" step="10" value="0">
   <h4>Scope</h4>
   <select id="scopef"><option value="">all scopes</option></select>
   <h4>Relation</h4>
@@ -194,8 +214,15 @@ function boot(data) {
       if (ns) ns.forEach((n, i) => { n.fx = d * 220; n.fy = (i - (ns.length - 1) / 2) * 52; });
     });
   }
-  document.getElementById("counts").textContent =
-    `${data.counts.nodes} nodes, ${data.counts.links} links (${data.generated_at})`;
+  // showing X of Y: with the filters doing real work, the store total on its
+  // own tells you nothing about what is actually on screen
+  function setCounts(vis) {
+    document.getElementById("counts").textContent = vis
+      ? `showing ${vis.nodes.length} of ${data.counts.nodes} nodes, `
+        + `${vis.links.length} of ${data.counts.links} links`
+      : `${data.counts.nodes} nodes, ${data.counts.links} links (${data.generated_at})`;
+  }
+  setCounts(null);
 
   const scopes = [...new Set(data.nodes.map(n => n.scope).filter(Boolean))].sort();
   const scopeSel = document.getElementById("scopef");
@@ -313,6 +340,78 @@ function boot(data) {
     return seen;
   }
 
+  // ---- entity-type filter, presets and degree bounds (#76) ----
+  const DOMAINS = {
+    personal: ["artist", "song", "album", "music_genre", "pet", "crop", "seed_variety",
+               "growing_area", "cuisine", "dish", "theatre_show", "activity", "wishlist_item",
+               "season", "home_project"],
+    infra: ["agent", "command", "system", "tool", "framework", "workflow", "file", "skill"],
+    contact: ["phone", "email", "social_account", "website"],
+  };
+  const etypesOf = n => n.kind === "entity" ? (n.type || "thing") : null;
+
+  function buildTypeList() {
+    const counts = new Map();
+    data.nodes.forEach(n => {
+      const t = etypesOf(n);
+      if (t) counts.set(t, (counts.get(t) || 0) + 1);
+    });
+    const box = document.getElementById("etypef");
+    box.innerHTML = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([t, c]) =>
+      `<label><input type="checkbox" class="etf" value="${t}" checked> ${t} <span class="hint">${c}</span></label>`
+    ).join("");
+    box.querySelectorAll(".etf").forEach(c => c.addEventListener("change", () => { typeCount(); refresh(); }));
+  }
+
+  function typeCount() {
+    const all = document.querySelectorAll(".etf").length;
+    const on = document.querySelectorAll(".etf:checked").length;
+    document.getElementById("etcount").textContent = on === all ? "all" : `${on}/${all}`;
+  }
+
+  function setTypes(pred) {
+    document.querySelectorAll(".etf").forEach(c => { c.checked = pred(c.value); });
+    typeCount();
+  }
+
+  function applyPreset(name) {
+    const excluded = new Set([...DOMAINS.personal, ...DOMAINS.infra, ...DOMAINS.contact]);
+    const memOn = name === "everything";
+    document.getElementById("memf").checked = memOn;
+    if (name === "professional")   setTypes(t => !excluded.has(t));
+    else if (name === "personal")  setTypes(t => DOMAINS.personal.includes(t) || t === "person" || t === "place");
+    else if (name === "infra")     setTypes(t => DOMAINS.infra.includes(t) || t === "project");
+    else                           setTypes(() => true);
+    document.getElementById("degmin").value = name === "everything" ? 0 : 2;
+    document.getElementById("degmax").value = 0;
+    degLabel();
+    refresh();
+  }
+
+  function degLabel() {
+    const lo = document.getElementById("degmin").value;
+    const hi = parseInt(document.getElementById("degmax").value, 10);
+    document.getElementById("degval").textContent = `${lo} to ${hi ? hi : "any"}`;
+  }
+
+  // Degree is counted on the links that survive the other filters, so the
+  // bounds mean "as currently displayed", not "in the whole store".
+  function pruneByDegree(kept, keptIds, linkOK) {
+    const lo = parseInt(document.getElementById("degmin").value, 10);
+    const hi = parseInt(document.getElementById("degmax").value, 10);
+    if (!lo && !hi) return kept;
+    const deg = new Map();
+    data.links.forEach(l => {
+      if (!linkOK(l) || !keptIds.has(l._s) || !keptIds.has(l._t) || l._s === l._t) return;
+      deg.set(l._s, (deg.get(l._s) || 0) + 1);
+      deg.set(l._t, (deg.get(l._t) || 0) + 1);
+    });
+    return kept.filter(n => {
+      const d = deg.get(n.id) || 0;
+      return d >= lo && (!hi || d <= hi);
+    });
+  }
+
   function visible() {
     const kinds = new Set([...document.querySelectorAll(".kindf:checked")].map(c => c.value));
     const scope = scopeSel.value, rel = relSel.value;
@@ -321,13 +420,23 @@ function boot(data) {
     const showSup = document.getElementById("supf")?.checked;
     const focus = egoSet();
     const familyOn = document.getElementById("familyf").checked;
-    const kept = data.nodes.filter(n =>
+    const memOn = document.getElementById("memf").checked;
+    const etypes = new Set([...document.querySelectorAll(".etf:checked")].map(c => c.value));
+    const linkOK = l => !(rel && l.rel !== rel)
+      && !(l.kind === "supersedes" && !showSup)
+      && linkEff(l) >= minW;
+    let kept = data.nodes.filter(n =>
       (!familyOn || familyIds.has(n.id)) &&
       kinds.has(nodeKind(n)) &&
+      (memOn || n.kind !== "memory") &&
+      (n.kind !== "entity" || etypes.has(n.type || "thing")) &&
       (!scope || n.scope === scope || n.scope === "global" || n.kind === "entity") &&
       (!from || n.created >= from) && (!to || n.created <= to) &&
       (showSup || !n.superseded) &&
       (!focus || focus.has(n.id)));
+    // an explicit focus or family view is the user asking for those exact
+    // nodes, so the degree bounds must not then take them away again
+    if (!focus && !familyOn) kept = pruneByDegree(kept, new Set(kept.map(n => n.id)), linkOK);
     const keptIds = new Set(kept.map(n => n.id));
     const outNodes = [];
     const metaNeeded = new Set();
@@ -353,9 +462,7 @@ function boot(data) {
     const outLinks = [];
     const aggregated = new Map();
     data.links.forEach(l => {
-      if (rel && l.rel !== rel) return;
-      if (l.kind === "supersedes" && !showSup) return;
-      if (linkEff(l) < minW) return;
+      if (!linkOK(l)) return;
       const s = idMap(l._s), t = idMap(l._t);
       if (!s || !t || s === t) return;
       if (s[0] === "c" || t[0] === "c") {
@@ -482,6 +589,7 @@ function boot(data) {
       applyFlow(vis);
     }
     graph.graphData(vis);
+    setCounts(vis);
   }
 
   function showDetail(n) {
@@ -512,6 +620,11 @@ function boot(data) {
   function hideDetail() { document.getElementById("detail").style.display = "none"; }
 
   document.querySelectorAll(".kindf").forEach(c => c.addEventListener("change", refresh));
+  document.getElementById("memf").addEventListener("change", refresh);
+  document.querySelectorAll(".preset").forEach(b =>
+    b.addEventListener("click", () => applyPreset(b.dataset.preset)));
+  ["degmin", "degmax"].forEach(id =>
+    document.getElementById(id).addEventListener("input", () => { degLabel(); refresh(); }));
   ["scopef", "relf", "datefrom", "dateto"].forEach(id =>
     document.getElementById(id).addEventListener("change", refresh));
   document.getElementById("supf")?.addEventListener("change", refresh);
@@ -519,6 +632,7 @@ function boot(data) {
     document.getElementById(id).addEventListener("change", refresh));
   document.getElementById("colourm").addEventListener("change", () => { renderLegend(); refresh(); });
   renderLegend();
+  buildTypeList();
   document.getElementById("weightf").addEventListener("input", e => {
     document.getElementById("wval").textContent = e.target.value; refresh();
   });
@@ -536,7 +650,7 @@ function boot(data) {
   document.addEventListener("keydown", e => {
     if (e.key === "Escape") { ego = null; egoHops = 1; hideDetail(); refresh(); }
   });
-  refresh();
+  applyPreset("professional");
 }
 
 if (MODE === "serve") {
