@@ -19,7 +19,7 @@ from pathlib import Path
 MEMORY_COLS = (
     "id", "type", "scope", "content", "origin_session", "promoted_from",
     "confidence", "pinned", "consolidated", "superseded_by", "recall_count",
-    "last_recalled_at", "created_at", "valence", "verify_by",
+    "last_recalled_at", "created_at", "valence", "verify_by", "line_hash",
 )
 
 
@@ -56,6 +56,17 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
         if scope != "quarantine" and _redact.screen_instructions(m["content"]):
             scope = "quarantine"
             quarantined += 1
+        # #74: the content hash is the strongest dedup key; it wins over the
+        # tuple match and maps references onto the existing row.
+        incoming_hash = m.get("line_hash")
+        if incoming_hash:
+            by_hash = conn.execute(
+                "SELECT id FROM memories WHERE line_hash = ?", (incoming_hash,)
+            ).fetchone()
+            if by_hash:
+                mem_map[m["id"]] = by_hash["id"]
+                deduped += 1
+                continue
         existing = conn.execute(
             "SELECT id FROM memories WHERE type = ? AND scope = ? AND content = ?"
             " AND origin_session IS ? AND created_at = ?",
@@ -68,11 +79,11 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
         cur = conn.execute(
             "INSERT INTO memories (type, scope, content, origin_session, confidence,"
             " pinned, consolidated, recall_count, last_recalled_at, created_at,"
-            " valence, verify_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            " valence, verify_by, line_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (m["type"], scope, m["content"], m.get("origin_session"),
              m["confidence"], m["pinned"], m["consolidated"], m["recall_count"],
              m.get("last_recalled_at"), m["created_at"], m.get("valence"),
-             m.get("verify_by")),
+             m.get("verify_by"), incoming_hash),
         )
         mem_map[m["id"]] = cur.lastrowid
         imported += 1

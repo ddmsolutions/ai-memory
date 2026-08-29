@@ -10,6 +10,8 @@ keywords = ["claude-code", "memory", "agent", "sqlite", "knowledge-graph"]
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
+vec = ["sqlite-vec>=0.1"]
+mcp = ["mcp>=1.2"]
 
 [project.scripts]
 ai-memory = "ai_memory.__main__:main"

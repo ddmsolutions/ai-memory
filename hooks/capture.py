@@ -108,15 +108,22 @@ def main() -> int:
                 "SELECT content FROM memories WHERE origin_session = ?", (session_id,)
             ).fetchall()
         }
+        import hashlib
+
         for memo in memos:
             if memo not in already:
                 # FR-C8: instruction-shaped memos are quarantined, not stored
                 # into any recallable scope and not silently dropped.
                 flag = redact.screen_instructions(memo, cfg.get("instruction_patterns"))
+                # #74: session-bound content hash. Replaying the same transcript
+                # is a no-op; the same memo from a DIFFERENT session is a new
+                # row (legitimate corroboration, not a duplicate).
+                digest = hashlib.sha256(f"{session_id}|{memo}".encode("utf-8")).hexdigest()
                 mid = store.remember(
                     conn, memo, mtype="episodic", origin_session=session_id,
                     scope="quarantine" if flag else scope,
                     valence=memo_valence(memo),
+                    line_hash=digest,
                 )
                 if not flag:
                     store.link_co_session(conn, mid, session_id)

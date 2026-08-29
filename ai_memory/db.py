@@ -93,7 +93,7 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
@@ -242,6 +242,14 @@ MIGRATIONS: dict[int, list[str]] = {
              label      TEXT NOT NULL CHECK (label IN ('false_positive','confirmed_hostile')),
              created_at TEXT NOT NULL DEFAULT (datetime('now'))
            )""",
+    ],
+    12: [
+        # #74: content-hash capture idempotence. NULL rows opt out (ordinary
+        # remember calls may legitimately repeat), so the unique index is
+        # partial; capture and import set the hash and become re-runnable.
+        "ALTER TABLE memories ADD COLUMN line_hash TEXT",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_memories_line_hash"
+        " ON memories(line_hash) WHERE line_hash IS NOT NULL",
     ],
 }
 

@@ -40,6 +40,7 @@ def remember(
     supersedes: int | None = None,
     valence: str | None = None,
     verify_by: str | None = None,
+    line_hash: str | None = None,
 ) -> int:
     if mtype not in MEMORY_TYPES:
         raise ValueError(f"type must be one of {MEMORY_TYPES}")
@@ -50,12 +51,32 @@ def remember(
     from . import redact as _redact
 
     content = _redact.redact(content, config.load().get("secret_patterns"))[0]
-    cur = conn.execute(
-        "INSERT INTO memories (type, scope, content, origin_session, promoted_from,"
-        " confidence, pinned, valence, verify_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (mtype, scope, content, origin_session, promoted_from, confidence,
-         int(pinned), valence, verify_by),
-    )
+    # #74 idempotence: a caller-supplied content hash makes the insert
+    # re-runnable; replaying a transcript or double-firing a hook returns
+    # the existing row instead of duplicating it.
+    if line_hash is not None:
+        existing = conn.execute(
+            "SELECT id FROM memories WHERE line_hash = ?", (line_hash,)
+        ).fetchone()
+        if existing:
+            return existing["id"]
+    try:
+        cur = conn.execute(
+            "INSERT INTO memories (type, scope, content, origin_session, promoted_from,"
+            " confidence, pinned, valence, verify_by, line_hash)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (mtype, scope, content, origin_session, promoted_from, confidence,
+             int(pinned), valence, verify_by, line_hash),
+        )
+    except sqlite3.IntegrityError:
+        # Concurrent hooks (Stop + SubagentStop) can race the pre-check;
+        # the partial unique index is the arbiter.
+        row = conn.execute(
+            "SELECT id FROM memories WHERE line_hash = ?", (line_hash,)
+        ).fetchone()
+        if row:
+            return row["id"]
+        raise
     new_id = cur.lastrowid
     if supersedes is not None:
         conn.execute(
