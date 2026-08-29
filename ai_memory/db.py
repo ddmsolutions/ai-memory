@@ -93,7 +93,7 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
@@ -405,6 +405,19 @@ MIGRATIONS: dict[int, list] = {
         "    FROM edges e"
         "    JOIN entities s ON s.id = e.src"
         "    JOIN entities d ON d.id = e.dst",
+    ],
+    21: [
+        # #77: materialise the defaults that ALTER TABLE ADD COLUMN never
+        # wrote. SQLite does not rewrite existing rows for an added column;
+        # it returns the default on read but stores nothing, so those records
+        # stay short and PRAGMA integrity_check reports "NULL value in
+        # <table>.<column>" for every NOT NULL column added that way. Reads
+        # were always correct, which is why it went unnoticed. A self-update
+        # forces each row to be written out in full.
+        "UPDATE edges SET confidence = confidence, source = source, status = status",
+        "UPDATE memory_entities SET role = role, confidence = confidence",
+        "UPDATE entities SET status = status",
+        "UPDATE memories SET origin = origin",
     ],
 }
 

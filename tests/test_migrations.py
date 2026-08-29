@@ -127,3 +127,55 @@ def test_migration_15_runs_against_a_populated_edges_table():
         "SELECT COUNT(*) FROM edges WHERE source IS NULL OR status IS NULL"
         " OR confidence IS NULL"
     ).fetchone()[0] == 0
+
+
+def test_migration_21_materialises_defaults_alter_never_wrote():
+    """#77: ALTER TABLE ADD COLUMN does not rewrite existing rows. A NOT NULL
+    column added that way returns its default on every read but stores nothing,
+    so those records stay short and PRAGMA integrity_check reports a NULL in a
+    NOT NULL column. Reads being correct is why it went unnoticed."""
+    import sqlite3
+
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(
+        """
+        CREATE TABLE memories (id INTEGER PRIMARY KEY, content TEXT NOT NULL);
+        CREATE TABLE entities (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+        CREATE TABLE edges (
+          id         INTEGER PRIMARY KEY,
+          src        INTEGER NOT NULL REFERENCES entities(id),
+          dst        INTEGER NOT NULL REFERENCES entities(id),
+          rel        TEXT NOT NULL,
+          weight     REAL NOT NULL DEFAULT 1.0,
+          memory_id  INTEGER REFERENCES memories(id),
+          t_valid    TEXT,
+          t_invalid  TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT INTO entities (id, name) VALUES (1, 'A'), (2, 'B');
+        INSERT INTO edges (src, dst, rel) VALUES (1, 2, 'knows');
+        """
+    )
+    for statement in db.MIGRATIONS[15]:
+        conn.execute(statement)
+
+    # reads are fine, which is the trap
+    assert conn.execute("SELECT confidence FROM edges").fetchone()[0] == 0.9
+    assert conn.execute("SELECT COUNT(*) FROM edges WHERE confidence IS NULL").fetchone()[0] == 0
+    # but the stored record is short
+    assert conn.execute("PRAGMA integrity_check").fetchall() != [("ok",)]
+
+    conn.execute("UPDATE edges SET confidence = confidence, source = source, status = status")
+    assert conn.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+
+
+def test_fresh_store_with_data_passes_integrity_check(tmp_path):
+    """The invariant migration 21 exists to protect: a store that has been
+    written to and reopened reports no integrity problems."""
+    path = tmp_path / "m.db"
+    conn = db.connect(path)
+    store.remember(conn, "a durable fact", mtype="semantic")
+    conn.close()
+    conn = db.connect(path)
+    # db.connect sets row_factory, so read the column rather than compare rows
+    assert [r[0] for r in conn.execute("PRAGMA integrity_check")] == ["ok"]
