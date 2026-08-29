@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.8.2 - 2026-08-29
+
+### Added
+- Viewer clutter controls for large graphs. An entity-type filter (checkbox per etype, with counts), a `memory nodes` master toggle, `Connections` min/max bounds that count degree over the links surviving the other filters, and four one-click presets: professional, personal, infrastructure, everything. The viewer now opens on the professional preset rather than the full graph
+- The counts line reports `showing X of Y nodes` instead of the store total, so it is clear how much the filters are removing
+
 ## v0.8.1 - 2026-08-29
 
 ### Fixed
