@@ -396,20 +396,31 @@ function boot(data) {
 
   // Degree is counted on the links that survive the other filters, so the
   // bounds mean "as currently displayed", not "in the whole store".
-  function pruneByDegree(kept, keptIds, linkOK) {
+  //
+  // Pruning has to run to a fixed point: dropping a node lowers its
+  // neighbours' degree, so a single pass strands nodes that only met the
+  // floor through neighbours which were themselves removed. That is exactly
+  // the "disconnected nodes with no edges" the floor exists to prevent.
+  function pruneByDegree(kept, linkOK) {
     const lo = parseInt(document.getElementById("degmin").value, 10);
     const hi = parseInt(document.getElementById("degmax").value, 10);
     if (!lo && !hi) return kept;
-    const deg = new Map();
-    data.links.forEach(l => {
-      if (!linkOK(l) || !keptIds.has(l._s) || !keptIds.has(l._t) || l._s === l._t) return;
-      deg.set(l._s, (deg.get(l._s) || 0) + 1);
-      deg.set(l._t, (deg.get(l._t) || 0) + 1);
-    });
-    return kept.filter(n => {
-      const d = deg.get(n.id) || 0;
-      return d >= lo && (!hi || d <= hi);
-    });
+    for (let pass = 0; pass < 25; pass++) {
+      const ids = new Set(kept.map(n => n.id));
+      const deg = new Map();
+      data.links.forEach(l => {
+        if (!linkOK(l) || !ids.has(l._s) || !ids.has(l._t) || l._s === l._t) return;
+        deg.set(l._s, (deg.get(l._s) || 0) + 1);
+        deg.set(l._t, (deg.get(l._t) || 0) + 1);
+      });
+      const next = kept.filter(n => {
+        const d = deg.get(n.id) || 0;
+        return d >= lo && (!hi || d <= hi);
+      });
+      if (next.length === kept.length) return next;
+      kept = next;
+    }
+    return kept;
   }
 
   function visible() {
@@ -436,7 +447,7 @@ function boot(data) {
       (!focus || focus.has(n.id)));
     // an explicit focus or family view is the user asking for those exact
     // nodes, so the degree bounds must not then take them away again
-    if (!focus && !familyOn) kept = pruneByDegree(kept, new Set(kept.map(n => n.id)), linkOK);
+    if (!focus && !familyOn) kept = pruneByDegree(kept, linkOK);
     const keptIds = new Set(kept.map(n => n.id));
     const outNodes = [];
     const metaNeeded = new Set();

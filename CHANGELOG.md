@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.8.3 - 2026-08-29
+
+### Fixed
+- The viewer's connection floor stranded the very nodes it exists to remove. Dropping a node lowers its neighbours' degree, so a single pass left nodes that only met the floor through neighbours which were themselves pruned. Pruning now runs to a fixed point (capped at 25 passes). On the live store the professional preset went from 532 nodes with 3 stranded to 508 with none; it needs 5 passes to settle
+
 ## v0.8.2 - 2026-08-29
 
 ### Added
