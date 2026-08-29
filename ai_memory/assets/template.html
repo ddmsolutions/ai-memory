@@ -382,7 +382,9 @@ function boot(data) {
     else if (name === "personal")  setTypes(t => DOMAINS.personal.includes(t) || t === "person" || t === "place");
     else if (name === "infra")     setTypes(t => DOMAINS.infra.includes(t) || t === "project");
     else                           setTypes(() => true);
-    document.getElementById("degmin").value = name === "everything" ? 0 : 2;
+    // even "everything" keeps a floor of 1: a node with nothing attached to it
+    // carries no information in a force layout, it just fills space
+    document.getElementById("degmin").value = name === "everything" ? 1 : 2;
     document.getElementById("degmax").value = 0;
     degLabel();
     refresh();
