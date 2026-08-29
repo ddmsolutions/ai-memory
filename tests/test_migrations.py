@@ -85,3 +85,45 @@ def test_hooks_fail_soft_on_migration_error(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"session_id": "s"})))
     assert session_start.main() == 0
+
+
+def test_migration_15_runs_against_a_populated_edges_table():
+    """Regression: every migration test above starts from an empty store, so a
+    constraint that only bites when rows exist shipped unnoticed. SQLite runs a
+    full-table scan for an ADD COLUMN carrying a CHECK; a NOT NULL column added
+    earlier in the same migration reads as NULL on existing rows during that
+    scan, killing the upgrade for anyone with edges already in their graph."""
+    import sqlite3
+
+    conn = sqlite3.connect(":memory:")
+    conn.executescript(
+        """
+        CREATE TABLE memories (id INTEGER PRIMARY KEY, content TEXT NOT NULL);
+        CREATE TABLE entities (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+        CREATE TABLE edges (
+          id         INTEGER PRIMARY KEY,
+          src        INTEGER NOT NULL REFERENCES entities(id),
+          dst        INTEGER NOT NULL REFERENCES entities(id),
+          rel        TEXT NOT NULL,
+          weight     REAL NOT NULL DEFAULT 1.0,
+          memory_id  INTEGER REFERENCES memories(id),
+          t_valid    TEXT,
+          t_invalid  TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT INTO entities (id, name) VALUES (1, 'A'), (2, 'B');
+        INSERT INTO edges (src, dst, rel) VALUES (1, 2, 'knows'), (2, 1, 'knows');
+        """
+    )
+
+    for statement in db.MIGRATIONS[15]:
+        conn.execute(statement)
+
+    row = conn.execute(
+        "SELECT source, status, confidence FROM edges ORDER BY id"
+    ).fetchone()
+    assert row == ("manual", "active", 0.9)
+    assert conn.execute(
+        "SELECT COUNT(*) FROM edges WHERE source IS NULL OR status IS NULL"
+        " OR confidence IS NULL"
+    ).fetchone()[0] == 0

@@ -274,11 +274,18 @@ MIGRATIONS: dict[int, list] = {
         # suspension, and edge_sources is the evidence set (which memories
         # back this edge), replacing the single memory_id as the join of
         # record (memory_id kept for compatibility as 'first evidence').
-        "ALTER TABLE edges ADD COLUMN confidence REAL NOT NULL DEFAULT 0.9",
+        # Order matters on a populated table. SQLite runs a full-table
+        # constraint scan for an ADD COLUMN that carries a CHECK, and a
+        # NOT NULL column added earlier in the same migration has no stored
+        # value on existing rows, so that scan reads it as NULL and the
+        # migration dies with "NOT NULL constraint failed". Adding the
+        # CHECK-carrying columns first avoids the scan seeing a virtual
+        # column. Same resulting schema, and empty stores never saw the bug.
         "ALTER TABLE edges ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'"
         " CHECK (source IN ('manual','consolidate','extract'))",
         "ALTER TABLE edges ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
         " CHECK (status IN ('active','suspended'))",
+        "ALTER TABLE edges ADD COLUMN confidence REAL NOT NULL DEFAULT 0.9",
         """CREATE TABLE IF NOT EXISTS edge_sources (
              edge_id    INTEGER NOT NULL REFERENCES edges(id) ON DELETE CASCADE,
              memory_id  INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
