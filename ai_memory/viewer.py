@@ -95,6 +95,9 @@ def export_graph_json(
             "kind": "edge", "rel": edge["rel"], "weight": edge["weight"],
             # #68: closed validity windows render faded, never disappear.
             "closed": edge["t_invalid"] is not None,
+            # #71: provenance surfaces in the viewer payload.
+            "source": edge["source"], "confidence": edge["confidence"],
+            "suspended": edge["status"] == "suspended",
         })
     for me in conn.execute("SELECT * FROM memory_entities"):
         if me["memory_id"] in memory_ids:

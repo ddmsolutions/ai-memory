@@ -34,6 +34,7 @@ def export_store(conn: sqlite3.Connection) -> dict:
         "memories": rows("SELECT * FROM memories ORDER BY id"),
         "entities": rows("SELECT * FROM entities ORDER BY id"),
         "edges": rows("SELECT * FROM edges ORDER BY id"),
+        "edge_sources": rows("SELECT * FROM edge_sources"),
         "memory_entities": rows("SELECT * FROM memory_entities"),
         "memory_links": rows("SELECT * FROM memory_links"),
         "intentions": rows("SELECT * FROM intentions ORDER BY id"),
@@ -116,17 +117,43 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
         )
         ent_map[e["id"]] = cur.fetchone()[0]
 
+    edge_map: dict[int, int] = {}
     for edge in data.get("edges", []):
         if edge["src"] not in ent_map or edge["dst"] not in ent_map:
             continue
-        conn.execute(
+        src_id, dst_id = ent_map[edge["src"]], ent_map[edge["dst"]]
+        t_valid = edge.get("t_valid", "")
+        existing_edge = conn.execute(
+            "SELECT id FROM edges WHERE src = ? AND dst = ? AND rel = ? AND t_valid = ?",
+            (src_id, dst_id, edge["rel"], t_valid),
+        ).fetchone()
+        if existing_edge:
+            edge_map[edge["id"]] = existing_edge["id"]
+            continue
+        # #71: source/confidence/status round-trip; unknown values sanitised
+        # the same way memory origins are (an import cannot invent trust).
+        source = edge.get("source")
+        if source not in ("manual", "consolidate", "extract"):
+            source = "consolidate"
+        status = edge.get("status")
+        if status not in ("active", "suspended"):
+            status = "active"
+        cur = conn.execute(
             "INSERT INTO edges (src, dst, rel, weight, memory_id, t_valid, t_invalid,"
-            " created_at) VALUES (?,?,?,?,?,?,?,?)"
-            " ON CONFLICT(src, dst, rel, t_valid) DO NOTHING",
-            (ent_map[edge["src"]], ent_map[edge["dst"]], edge["rel"], edge["weight"],
-             mem_map.get(edge.get("memory_id")), edge.get("t_valid", ""),
-             edge.get("t_invalid"), edge["created_at"]),
+            " source, confidence, status, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (src_id, dst_id, edge["rel"], edge["weight"],
+             mem_map.get(edge.get("memory_id")), t_valid,
+             edge.get("t_invalid"), source, edge.get("confidence", 0.7), status,
+             edge["created_at"]),
         )
+        edge_map[edge["id"]] = cur.lastrowid
+
+    for es in data.get("edge_sources", []):
+        if es["edge_id"] in edge_map and es["memory_id"] in mem_map:
+            conn.execute(
+                "INSERT OR IGNORE INTO edge_sources (edge_id, memory_id) VALUES (?, ?)",
+                (edge_map[es["edge_id"]], mem_map[es["memory_id"]]),
+            )
 
     for me in data.get("memory_entities", []):
         if me["memory_id"] in mem_map and me["entity_id"] in ent_map:

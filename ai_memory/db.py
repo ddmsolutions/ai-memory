@@ -93,7 +93,7 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
@@ -267,6 +267,27 @@ MIGRATIONS: dict[int, list] = {
     # relationships: left, rejoined), which SQLite only allows via rebuild,
     # and a rebuild needs an idempotence guard plain SQL cannot express.
     14: [lambda conn: _rebuild_edges_with_validity(conn)],
+    15: [
+        # #71: edge provenance - how an edge knows what it claims. source is
+        # the channel (manual outranks machine paths per the #64 trust model),
+        # confidence defaults per channel, status carries quarantine
+        # suspension, and edge_sources is the evidence set (which memories
+        # back this edge), replacing the single memory_id as the join of
+        # record (memory_id kept for compatibility as 'first evidence').
+        "ALTER TABLE edges ADD COLUMN confidence REAL NOT NULL DEFAULT 0.9",
+        "ALTER TABLE edges ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'"
+        " CHECK (source IN ('manual','consolidate','extract'))",
+        "ALTER TABLE edges ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
+        " CHECK (status IN ('active','suspended'))",
+        """CREATE TABLE IF NOT EXISTS edge_sources (
+             edge_id    INTEGER NOT NULL REFERENCES edges(id) ON DELETE CASCADE,
+             memory_id  INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
+             created_at TEXT NOT NULL DEFAULT (datetime('now')),
+             PRIMARY KEY (edge_id, memory_id)
+           )""",
+        "INSERT OR IGNORE INTO edge_sources (edge_id, memory_id)"
+        " SELECT id, memory_id FROM edges WHERE memory_id IS NOT NULL",
+    ],
 }
 
 

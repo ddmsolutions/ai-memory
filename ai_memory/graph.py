@@ -31,6 +31,12 @@ def find_entity(conn: sqlite3.Connection, name: str) -> sqlite3.Row | None:
     ).fetchone()
 
 
+# #71: default confidence per source channel; manual (a human typed it)
+# outranks the machine paths, mirroring the #64 origin trust ordering.
+EDGE_SOURCES = ("manual", "consolidate", "extract")
+_SOURCE_CONFIDENCE = {"manual": 0.9, "consolidate": 0.7, "extract": 0.6}
+
+
 def link(
     conn: sqlite3.Connection,
     src_name: str,
@@ -40,6 +46,7 @@ def link(
     memory_id: int | None = None,
     valid_from: str = "",
     replaces: bool = False,
+    source: str = "manual",
 ) -> int:
     """Create or update an edge. #68: edges carry a valid-time window.
 
@@ -47,7 +54,13 @@ def link(
     case); a dated valid_from allows the SAME relationship to recur (left,
     rejoined) as distinct rows. replaces=True closes any other open window
     of this (src, dst, rel) first: supersession, never deletion.
+
+    #71: source is the provenance channel; evidence memories accumulate in
+    edge_sources, and each NEW piece of evidence reinforces confidence
+    asymptotically (corroboration is deterministic, never invented).
     """
+    if source not in EDGE_SOURCES:
+        raise ValueError(f"source must be one of {EDGE_SOURCES}")
     src = find_entity(conn, src_name) or None
     dst = find_entity(conn, dst_name) or None
     src_id = src["id"] if src else add_entity(conn, src_name)
@@ -60,16 +73,40 @@ def link(
             (valid_from, src_id, dst_id, rel, valid_from),
         )
     cur = conn.execute(
-        "INSERT INTO edges (src, dst, rel, weight, memory_id, t_valid)"
-        " VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO edges (src, dst, rel, weight, memory_id, t_valid, source, confidence)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         " ON CONFLICT(src, dst, rel, t_valid) DO UPDATE SET"
         " weight = excluded.weight, memory_id = COALESCE(excluded.memory_id, edges.memory_id)"
         " RETURNING id",
-        (src_id, dst_id, rel, weight, memory_id, valid_from),
+        (src_id, dst_id, rel, weight, memory_id, valid_from, source,
+         _SOURCE_CONFIDENCE[source]),
     )
     edge_id = cur.fetchone()[0]
+    if memory_id is not None:
+        add_edge_evidence(conn, edge_id, memory_id)
     conn.commit()
     return edge_id
+
+
+def add_edge_evidence(conn: sqlite3.Connection, edge_id: int, memory_id: int) -> None:
+    """#71: attach an evidencing memory to an edge. A genuinely new piece of
+    evidence (not a re-insert) reinforces confidence, approaching 1.0."""
+    added = conn.execute(
+        "INSERT OR IGNORE INTO edge_sources (edge_id, memory_id) VALUES (?, ?)",
+        (edge_id, memory_id),
+    ).rowcount
+    if added:
+        # The first evidence is priced into the source-channel default;
+        # corroboration starts at the second independent memory.
+        count = conn.execute(
+            "SELECT COUNT(*) FROM edge_sources WHERE edge_id = ?", (edge_id,)
+        ).fetchone()[0]
+        if count > 1:
+            conn.execute(
+                "UPDATE edges SET confidence = MIN(1.0, confidence + (1.0 - confidence) * 0.2)"
+                " WHERE id = ?",
+                (edge_id,),
+            )
 
 
 def close_edge(
@@ -100,20 +137,74 @@ def neighbours(
     if ent is None:
         return []
     closed = "" if include_closed else " AND e.t_invalid IS NULL"
+    # #71: suspended edges (evidence quarantined) never surface here.
+    closed += " AND e.status = 'active'"
     rows = conn.execute(
         f"""
         SELECT e.rel, e.weight, 'out' AS direction, o.name AS other, o.etype AS other_type,
-               e.t_valid, e.t_invalid
+               e.t_valid, e.t_invalid, e.source, e.confidence
           FROM edges e JOIN entities o ON o.id = e.dst WHERE e.src = :id{closed}
         UNION ALL
         SELECT e.rel, e.weight, 'in' AS direction, o.name AS other, o.etype AS other_type,
-               e.t_valid, e.t_invalid
+               e.t_valid, e.t_invalid, e.source, e.confidence
           FROM edges e JOIN entities o ON o.id = e.src WHERE e.dst = :id{closed}
         ORDER BY weight DESC
         """,
         {"id": ent["id"]},
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def edge_why(conn: sqlite3.Connection, src_name: str, rel: str, dst_name: str) -> str:
+    """#71: why do we believe src -rel-> dst - every window with its source
+    channel, confidence, and the evidencing memories."""
+    src, dst = find_entity(conn, src_name), find_entity(conn, dst_name)
+    if src is None or dst is None:
+        return f"unknown entity: {src_name if src is None else dst_name}"
+    rows = conn.execute(
+        "SELECT * FROM edges WHERE src = ? AND dst = ? AND rel = ? ORDER BY t_valid",
+        (src["id"], dst["id"], rel),
+    ).fetchall()
+    if not rows:
+        return f"no edge {src_name} -{rel}-> {dst_name}"
+    lines = [f"**{src['name']} -{rel}-> {dst['name']}**"]
+    for e in rows:
+        window = f"from {e['t_valid'][:10]}" if e["t_valid"] else "window open-ended"
+        if e["t_invalid"]:
+            window += f" until {e['t_invalid'][:10]}"
+        lines.append(
+            f"- edge #{e['id']}: {window}, source {e['source']},"
+            f" confidence {e['confidence']:.2f}"
+            + (", SUSPENDED (evidence quarantined)" if e["status"] == "suspended" else "")
+        )
+        for ev in conn.execute(
+            "SELECT m.id, m.created_at, m.content FROM edge_sources es"
+            " JOIN memories m ON m.id = es.memory_id WHERE es.edge_id = ?",
+            (e["id"],),
+        ):
+            lines.append(f"  - evidence #{ev['id']} [{ev['created_at'][:10]}]: {ev['content'][:80]}")
+    return "\n".join(lines)
+
+
+def suspend_edges_for_memories(conn: sqlite3.Connection, memory_ids: list[int]) -> int:
+    """#71/#65: suspend machine-sourced edges whose ENTIRE evidence set sits in
+    the given (quarantined) memories. Manual edges stand on the human's word
+    and are never suspended by this path."""
+    if not memory_ids:
+        return 0
+    qmarks = ",".join("?" * len(memory_ids))
+    suspended = conn.execute(
+        f"""
+        UPDATE edges SET status = 'suspended'
+         WHERE source <> 'manual' AND status = 'active'
+           AND id IN (SELECT edge_id FROM edge_sources)
+           AND id NOT IN (
+             SELECT edge_id FROM edge_sources WHERE memory_id NOT IN ({qmarks})
+           )
+        """,
+        memory_ids,
+    ).rowcount
+    return suspended
 
 
 _ENTITY_LINE_RE = re.compile(r"^entities:\s*(.+)$", re.I | re.M)
@@ -365,5 +456,7 @@ def describe(conn: sqlite3.Connection, name: str, history: bool = False) -> str:
             line += f" (from {n['t_valid'][:10]})"
         if n.get("t_invalid"):
             line += f" (ENDED {n['t_invalid'][:10]})"
+        if n.get("source") and n["source"] != "manual":
+            line += f" [{n['source']} {n['confidence']:.2f}]"
         lines.append(line)
     return "\n".join(lines)

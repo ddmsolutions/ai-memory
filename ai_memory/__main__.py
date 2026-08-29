@@ -140,6 +140,10 @@ def build_parser() -> argparse.ArgumentParser:
     em.add_argument("--etype", default=None)
     eab = esub.add_parser("about", help="everything we know about an entity")
     eab.add_argument("name")
+    ew = esub.add_parser("why", help="why we believe an edge: windows, source, evidence (#71)")
+    ew.add_argument("src")
+    ew.add_argument("dst")
+    ew.add_argument("--rel", required=True)
     esub.add_parser("backfill", help="mention-link existing memories via their entities: lines")
     erl = esub.add_parser("role", help="role as a first-class node: holder -holds-> role [-at-> org]")
     erl.add_argument("holder")
@@ -419,6 +423,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"reified: {args.src} -has_role-> [{args.rel}] -with-> {args.dst}")
         elif args.entity_command == "backfill":
             print(json.dumps(graph.backfill_mentions(conn)))
+        elif args.entity_command == "why":
+            print(graph.edge_why(conn, args.src, args.rel, args.dst))
         elif args.entity_command == "about":
             rows = graph.memories_about(conn, args.name)
             if not rows:

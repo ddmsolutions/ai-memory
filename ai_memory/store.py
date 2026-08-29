@@ -969,6 +969,19 @@ def lint(conn: sqlite3.Connection) -> list[dict]:
             "detail": f"independently corroborated; consider: trust {pair['id']}"
                       f" --origin agent ({pair['content'][:60]})",
         })
+    # #71: a machine-sourced edge whose evidence memories have all been
+    # deleted (decay, forget, purge) asserts a claim nothing backs any more.
+    for row in conn.execute(
+        "SELECT e.id, e.rel, s.name AS src_name, d.name AS dst_name FROM edges e"
+        " JOIN entities s ON s.id = e.src JOIN entities d ON d.id = e.dst"
+        " WHERE e.source <> 'manual' AND e.status = 'active'"
+        " AND e.id NOT IN (SELECT edge_id FROM edge_sources)"
+    ):
+        findings.append({
+            "issue": "edge_evidence_gone", "ids": str(row["id"]),
+            "detail": f"{row['src_name']} -{row['rel']}-> {row['dst_name']}"
+                      " (machine-sourced, all evidence deleted)",
+        })
     return findings
 
 
