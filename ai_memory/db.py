@@ -93,7 +93,7 @@ CREATE VIEW IF NOT EXISTS v_edges_named AS
 """
 
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 # Ordered migrations: {target_version: [sql, ...]}. The baseline schema is
 # version 1; every DDL change from here ships as an entry here, never as an
@@ -287,6 +287,26 @@ MIGRATIONS: dict[int, list] = {
            )""",
         "INSERT OR IGNORE INTO edge_sources (edge_id, memory_id)"
         " SELECT id, memory_id FROM edges WHERE memory_id IS NOT NULL",
+    ],
+    16: [
+        # #69: aliases resolve what an entity is CALLED; merge tombstones keep
+        # a losing entity as a redirect (status merged + merged_into), so old
+        # references never dangle. alias_norm is the lookup key (lowercase,
+        # punctuation to space, whitespace collapsed - the workspace-proven
+        # convention); alias_raw preserves what was actually written.
+        "ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'"
+        " CHECK (status IN ('active','merged'))",
+        "ALTER TABLE entities ADD COLUMN merged_into INTEGER REFERENCES entities(id)",
+        """CREATE TABLE IF NOT EXISTS entity_aliases (
+             entity_id  INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+             alias_norm TEXT NOT NULL,
+             alias_raw  TEXT NOT NULL,
+             source     TEXT NOT NULL DEFAULT 'manual'
+                        CHECK (source IN ('manual','consolidate','backfill','merge')),
+             created_at TEXT NOT NULL DEFAULT (datetime('now')),
+             PRIMARY KEY (entity_id, alias_norm)
+           )""",
+        "CREATE INDEX IF NOT EXISTS ix_alias_norm ON entity_aliases(alias_norm)",
     ],
 }
 

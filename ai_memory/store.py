@@ -1026,6 +1026,20 @@ def lint(conn: sqlite3.Connection) -> list[dict]:
             "detail": f"independently corroborated; consider: trust {pair['id']}"
                       f" --origin agent ({pair['content'][:60]})",
         })
+    # #69: an alias mapping to several active entities can never resolve
+    # headlessly; every capture that used it linked nothing.
+    for row in conn.execute(
+        "SELECT a.alias_norm, COUNT(DISTINCT COALESCE(e.merged_into, e.id)) AS n,"
+        " GROUP_CONCAT(DISTINCT a.entity_id) AS ids"
+        " FROM entity_aliases a JOIN entities e ON e.id = a.entity_id"
+        " GROUP BY a.alias_norm HAVING n > 1"
+    ):
+        findings.append({
+            "issue": "ambiguous_alias", "ids": row["ids"],
+            "detail": f"alias '{row['alias_norm']}' maps to {row['n']} entities;"
+                      " headless captures link nothing until resolved (entity merge"
+                      " or alias removal)",
+        })
     # #71: a machine-sourced edge whose evidence memories have all been
     # deleted (decay, forget, purge) asserts a claim nothing backs any more.
     for row in conn.execute(

@@ -151,6 +151,21 @@ def build_parser() -> argparse.ArgumentParser:
     ew.add_argument("src")
     ew.add_argument("dst")
     ew.add_argument("--rel", required=True)
+    eal = esub.add_parser("alias", help="aliases: what an entity is CALLED (#69)")
+    ealsub = eal.add_subparsers(dest="alias_command", required=True)
+    eala = ealsub.add_parser("add")
+    eala.add_argument("alias")
+    eala.add_argument("canonical")
+    eall = ealsub.add_parser("list")
+    eall.add_argument("name")
+    ealr = ealsub.add_parser("remove")
+    ealr.add_argument("alias")
+    ealr.add_argument("canonical")
+    erz = esub.add_parser("resolve", help="resolve a name: canonical > alias > fuzzy suggestion")
+    erz.add_argument("name")
+    emg = esub.add_parser("merge", help="merge a split entity: repoint mentions/edges, loser becomes an alias + redirect")
+    emg.add_argument("loser")
+    emg.add_argument("winner")
     esub.add_parser("backfill", help="mention-link existing memories via their entities: lines")
     erl = esub.add_parser("role", help="role as a first-class node: holder -holds-> role [-at-> org]")
     erl.add_argument("holder")
@@ -240,6 +255,107 @@ def _content_or_stdin(value: str | None) -> str:
     if not text:
         raise SystemExit("error: no content provided (argument or stdin)")
     return text
+
+
+
+
+def _entity_command(conn, args) -> int:
+    """Entity subcommand dispatch; AmbiguousEntity is caught by main()."""
+    if args.entity_command == "add":
+        eid = graph.add_entity(conn, args.name, etype=args.etype, summary=args.summary)
+        print(f"entity #{eid} {args.name} ({args.etype})")
+    elif args.entity_command == "link":
+        edge_id = graph.link(conn, args.src, args.dst, rel=args.rel, weight=args.weight,
+                             valid_from=args.valid_from, replaces=args.replaces)
+        print(f"edge #{edge_id} {args.src} -{args.rel}-> {args.dst}")
+    elif args.entity_command == "close":
+        n = graph.close_edge(conn, args.src, args.dst, args.rel, on=args.on)
+        print(f"closed {n} window(s): {args.src} -{args.rel}-> {args.dst}"
+              if n else "no open edge matched")
+    elif args.entity_command == "show":
+        print(graph.describe(conn, args.name, history=args.history))
+    elif args.entity_command == "mention":
+        graph.mention(conn, args.memory_id, args.name, etype=args.etype)
+        print(f"memory #{args.memory_id} mentions {args.name}")
+    elif args.entity_command == "role":
+        try:
+            graph.add_role(conn, args.holder, args.title, org=args.org)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"{args.holder} -holds-> {args.title}" + (f" @ {args.org}" if args.org else ""))
+    elif args.entity_command == "reify":
+        try:
+            graph.reify_edge(conn, args.src, args.rel, args.dst)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"reified: {args.src} -has_role-> [{args.rel}] -with-> {args.dst}")
+    elif args.entity_command == "backfill":
+        print(json.dumps(graph.backfill_mentions(conn)))
+    elif args.entity_command == "why":
+        print(graph.edge_why(conn, args.src, args.rel, args.dst))
+    elif args.entity_command == "alias":
+        try:
+            if args.alias_command == "add":
+                eid = graph.add_alias(conn, args.alias, args.canonical)
+                print(f"'{args.alias}' -> {args.canonical} (#{eid})")
+            elif args.alias_command == "remove":
+                ent = graph.find_entity(conn, args.canonical)
+                if ent is None:
+                    print(f"error: no entity '{args.canonical}'", file=sys.stderr)
+                    return 1
+                n = conn.execute(
+                    "DELETE FROM entity_aliases WHERE entity_id = ? AND alias_norm = ?",
+                    (ent["id"], graph.normalise_alias(args.alias))).rowcount
+                conn.commit()
+                print(f"removed {n} alias(es)")
+            else:
+                ent = graph.find_entity(conn, args.name)
+                if ent is None:
+                    print(f"error: no entity '{args.name}'", file=sys.stderr)
+                    return 1
+                rows = conn.execute(
+                    "SELECT alias_raw, source FROM entity_aliases WHERE entity_id = ?"
+                    " ORDER BY alias_norm", (ent["id"],)).fetchall()
+                if not rows:
+                    print(f"no aliases for {ent['name']}")
+                for row in rows:
+                    print(f"{row['alias_raw']} ({row['source']})")
+        except (ValueError, graph.AmbiguousEntity) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+    elif args.entity_command == "resolve":
+        result = graph.resolve(conn, args.name)
+        if result["entity"] is not None:
+            e = result["entity"]
+            print(f"resolved: #{e['id']} {e['name']} ({e['etype']})")
+        elif result["candidates"]:
+            print(f"AMBIGUOUS: '{args.name}' matches:")
+            for c in result["candidates"]:
+                print(f"  #{c['id']} {c['name']} ({c['etype']})")
+        elif result["suggestions"]:
+            print(f"no match; did you mean:")
+            for s in result["suggestions"]:
+                print(f"  #{s['id']} {s['name']} ({s['etype']})")
+        else:
+            print(f"no entity matches '{args.name}'")
+    elif args.entity_command == "merge":
+        try:
+            report = graph.merge_entities(conn, args.loser, args.winner)
+        except (ValueError, graph.AmbiguousEntity) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"merged #{report['loser']} into #{report['winner']}:"
+              f" {report['mentions_moved']} mentions, {report['edges_moved']} edges moved;"
+              f" '{args.loser}' kept as alias + redirect")
+    elif args.entity_command == "about":
+        rows = graph.memories_about(conn, args.name)
+        if not rows:
+            print(f"nothing recorded about {args.name}")
+        for row in rows:
+            print(f"#{row['id']} [{row['type']}] {row['content']}")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -413,46 +529,13 @@ def main(argv: list[str] | None = None) -> int:
         new_id = store.promote(conn, args.id, args.mtype, content=args.content)
         print(f"promoted #{args.id} -> #{new_id} ({args.mtype})")
     elif args.command == "entity":
-        if args.entity_command == "add":
-            eid = graph.add_entity(conn, args.name, etype=args.etype, summary=args.summary)
-            print(f"entity #{eid} {args.name} ({args.etype})")
-        elif args.entity_command == "link":
-            edge_id = graph.link(conn, args.src, args.dst, rel=args.rel, weight=args.weight,
-                                 valid_from=args.valid_from, replaces=args.replaces)
-            print(f"edge #{edge_id} {args.src} -{args.rel}-> {args.dst}")
-        elif args.entity_command == "close":
-            n = graph.close_edge(conn, args.src, args.dst, args.rel, on=args.on)
-            print(f"closed {n} window(s): {args.src} -{args.rel}-> {args.dst}"
-                  if n else "no open edge matched")
-        elif args.entity_command == "show":
-            print(graph.describe(conn, args.name, history=args.history))
-        elif args.entity_command == "mention":
-            graph.mention(conn, args.memory_id, args.name, etype=args.etype)
-            print(f"memory #{args.memory_id} mentions {args.name}")
-        elif args.entity_command == "role":
-            try:
-                graph.add_role(conn, args.holder, args.title, org=args.org)
-            except ValueError as exc:
-                print(f"error: {exc}", file=sys.stderr)
-                return 1
-            print(f"{args.holder} -holds-> {args.title}" + (f" @ {args.org}" if args.org else ""))
-        elif args.entity_command == "reify":
-            try:
-                graph.reify_edge(conn, args.src, args.rel, args.dst)
-            except ValueError as exc:
-                print(f"error: {exc}", file=sys.stderr)
-                return 1
-            print(f"reified: {args.src} -has_role-> [{args.rel}] -with-> {args.dst}")
-        elif args.entity_command == "backfill":
-            print(json.dumps(graph.backfill_mentions(conn)))
-        elif args.entity_command == "why":
-            print(graph.edge_why(conn, args.src, args.rel, args.dst))
-        elif args.entity_command == "about":
-            rows = graph.memories_about(conn, args.name)
-            if not rows:
-                print(f"nothing recorded about {args.name}")
-            for row in rows:
-                print(f"#{row['id']} [{row['type']}] {row['content']}")
+        try:
+            return _entity_command(conn, args)
+        except graph.AmbiguousEntity as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            print("disambiguate with the exact canonical name, or repair with"
+                  " 'entity merge'", file=sys.stderr)
+            return 1
     elif args.command == "embed-index":
         from . import config as _config, embeddings
 

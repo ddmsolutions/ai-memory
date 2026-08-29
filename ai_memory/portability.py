@@ -33,6 +33,7 @@ def export_store(conn: sqlite3.Connection) -> dict:
         "schema_version": conn.execute("PRAGMA user_version").fetchone()[0],
         "memories": rows("SELECT * FROM memories ORDER BY id"),
         "entities": rows("SELECT * FROM entities ORDER BY id"),
+        "entity_aliases": rows("SELECT * FROM entity_aliases"),
         "edges": rows("SELECT * FROM edges ORDER BY id"),
         "edge_sources": rows("SELECT * FROM edge_sources"),
         "memory_entities": rows("SELECT * FROM memory_entities"),
@@ -116,6 +117,23 @@ def import_store(conn: sqlite3.Connection, data: dict) -> dict:
             (e["name"], e["etype"], e.get("summary"), e["created_at"]),
         )
         ent_map[e["id"]] = cur.fetchone()[0]
+
+    # #69: merge tombstones and aliases round-trip after every id is known.
+    for e in data.get("entities", []):
+        if e.get("status") == "merged" and e.get("merged_into") in ent_map:
+            conn.execute(
+                "UPDATE entities SET status = 'merged', merged_into = ?"
+                " WHERE id = ? AND status = 'active'",
+                (ent_map[e["merged_into"]], ent_map[e["id"]]),
+            )
+    for a in data.get("entity_aliases", []):
+        if a["entity_id"] in ent_map:
+            conn.execute(
+                "INSERT OR IGNORE INTO entity_aliases (entity_id, alias_norm, alias_raw,"
+                " source) VALUES (?,?,?,?)",
+                (ent_map[a["entity_id"]], a["alias_norm"], a["alias_raw"],
+                 a.get("source", "manual")),
+            )
 
     edge_map: dict[int, int] = {}
     for edge in data.get("edges", []):
