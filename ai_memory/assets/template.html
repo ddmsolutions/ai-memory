@@ -606,6 +606,27 @@ function boot(data) {
       }
     });
 
+  // Rel-aware physics: the default layout treats every link as the same weak
+  // spring, so a married couple can sit far apart while unrelated nodes crowd.
+  // Close-bond relations become short, strong springs (couples and families
+  // pull together); mentions stay long and loose (context, not structure);
+  // stronger bounded repulsion spreads the crowding.
+  const TIGHT_RELS = new Set(["married_to", "parent_of", "child_of", "sibling_of",
+                              "partner_of", "engaged_to", "holds", "has_role",
+                              "with", "at"]);
+  const linkForce = graph.d3Force("link");
+  if (linkForce) {
+    linkForce
+      .distance(l => l.kind === "edge" ? (TIGHT_RELS.has(l.rel) ? 26 : 60)
+                   : l.kind === "mention" ? 95
+                   : l.kind === "supersedes" ? 45 : 75)
+      .strength(l => l.kind === "edge" ? (TIGHT_RELS.has(l.rel) ? 0.9
+                                          : 0.3 * Math.max(0.3, l.weight || 1))
+                   : l.kind === "mention" ? 0.04 : 0.12);
+  }
+  const chargeForce = graph.d3Force("charge");
+  if (chargeForce) chargeForce.strength(-70).distanceMax(320);
+
   function refresh() {
     const vis = visible();
     if (document.getElementById("familyf").checked) {

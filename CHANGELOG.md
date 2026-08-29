@@ -6,6 +6,11 @@
 - Viewer: the relation filter is now a tickbox list matching the entity-type
   filter - multiple relation types combine, per-rel counts shown, all on by
   default - replacing the single-select dropdown.
+- Viewer: rel-aware layout physics - close-bond relations (married_to,
+  parent_of, sibling_of, role edges) are short strong springs so couples and
+  families sit together; mentions are long loose context links; stronger
+  bounded repulsion relieves crowding. Previously all d3 defaults, which let
+  a married pair drift apart while unrelated nodes packed.
 
 ## v0.8.5 - 2026-08-29
 
