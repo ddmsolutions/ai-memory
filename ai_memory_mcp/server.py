@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 try:
-    from mcp.server.fastmcp import FastMCP
-except ImportError as exc:  # pragma: no cover - exercised only without the extra
-    raise SystemExit(
-        "the MCP server needs the optional dependency: pip install 'ai-memory[mcp]'"
-    ) from exc
+    # mcp 2.x renamed FastMCP to MCPServer; our surface (name positional,
+    # instructions keyword, tool(name=), run() stdio default) is identical
+    # across both, so support either major.
+    from mcp.server.mcpserver import MCPServer as _Server
+except ImportError:
+    try:
+        from mcp.server.fastmcp import FastMCP as _Server
+    except ImportError as exc:  # pragma: no cover - exercised only without the extra
+        raise SystemExit(
+            "the MCP server needs the optional dependency: pip install 'ai-memory[mcp]'"
+        ) from exc
 
 from . import tools
 
 
-def build_server() -> "FastMCP":
-    server = FastMCP(
+def build_server():
+    server = _Server(
         "ai-memory",
         instructions=(
             "Persistent memory for this machine's ai-memory store. Writes pass"
