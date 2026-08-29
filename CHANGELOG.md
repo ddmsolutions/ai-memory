@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.8.5 - 2026-08-29
+
+### Added
+- Typed entity mentions (#80): `entities: Alice (person), Acme (company)` -
+  an optional parenthesised type per name, parsed deterministically
+  (multi-word parentheticals stay part of the name). A typed mention of an
+  existing 'thing' entity upgrades it in place (thing -> specific only,
+  never the reverse; UNIQUE twin collisions skip). `entity retype` repairs
+  existing rows (merge suggested on collision); lint nudges once, with
+  samples, when 5+ active 'thing' entities accumulate. The remembering
+  skill teaches the typed syntax.
+
 ## v0.8.4 - 2026-08-29
 
 ### Changed
