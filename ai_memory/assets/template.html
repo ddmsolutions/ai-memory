@@ -10,9 +10,9 @@
   #panel { position: absolute; top: 10px; left: 10px; width: 240px; background: #1a2027ee;
            border: 1px solid #2c3540; border-radius: 8px; padding: 10px 12px; z-index: 5;
            max-height: 92vh; overflow: auto; }
-  #etypef { max-height: 150px; overflow: auto; border: 1px solid #2c3540; border-radius: 4px;
+  #etypef, #relff { max-height: 150px; overflow: auto; border: 1px solid #2c3540; border-radius: 4px;
             padding: 4px 6px; }
-  #etypef label { font-size: 12px; }
+  #etypef label, #relff label { font-size: 12px; display: block; }
   .preset { background: #232c36; color: #d8dee6; border: 1px solid #2c3540; border-radius: 4px;
             padding: 2px 7px; margin: 0 3px 3px 0; cursor: pointer; font-size: 11px; }
   .preset:hover { background: #2c3540; }
@@ -56,8 +56,8 @@
   <input type="range" id="degmax" min="0" max="900" step="10" value="0">
   <h4>Scope</h4>
   <select id="scopef"><option value="">all scopes</option></select>
-  <h4>Relation</h4>
-  <select id="relf"><option value="">all relations</option></select>
+  <h4>Relations <span id="relcount" class="hint"></span></h4>
+  <div id="relff"></div>
   <h4>Min link weight <span id="wval" class="hint">0</span></h4>
   <input type="range" id="weightf" min="0" max="1" step="0.02" value="0">
   <h4>Created between</h4>
@@ -227,9 +227,22 @@ function boot(data) {
   const scopes = [...new Set(data.nodes.map(n => n.scope).filter(Boolean))].sort();
   const scopeSel = document.getElementById("scopef");
   scopes.forEach(s => scopeSel.add(new Option(s, s)));
-  const rels = [...new Set(data.links.map(l => l.rel))].sort();
-  const relSel = document.getElementById("relf");
-  rels.forEach(r => relSel.add(new Option(humanise(r), r)));
+  // Relations as tickboxes, matching the entity-type filter: multiple rels
+  // combine, counts shown, all on by default.
+  const relCounts = new Map();
+  data.links.forEach(l => relCounts.set(l.rel, (relCounts.get(l.rel) || 0) + 1));
+  const relBox = document.getElementById("relff");
+  relBox.innerHTML = [...relCounts.entries()].sort((a, b) => b[1] - a[1]).map(([r, c]) =>
+    `<label><input type="checkbox" class="rlf" value="${r}" checked> ${humanise(r)} <span class="hint">${c}</span></label>`
+  ).join("");
+  function relCount() {
+    const all = document.querySelectorAll(".rlf").length;
+    const on = document.querySelectorAll(".rlf:checked").length;
+    document.getElementById("relcount").textContent = on === all ? "all" : `${on}/${all}`;
+  }
+  relBox.querySelectorAll(".rlf").forEach(c =>
+    c.addEventListener("change", () => { relCount(); refresh(); }));
+  relCount();
   if (data.nodes.some(n => n.superseded)) document.getElementById("supwrap").style.display = "block";
 
   // connected components -> collapsible clusters
@@ -427,7 +440,8 @@ function boot(data) {
 
   function visible() {
     const kinds = new Set([...document.querySelectorAll(".kindf:checked")].map(c => c.value));
-    const scope = scopeSel.value, rel = relSel.value;
+    const scope = scopeSel.value;
+    const relsOn = new Set([...document.querySelectorAll(".rlf:checked")].map(c => c.value));
     const minW = parseFloat(document.getElementById("weightf").value);
     const from = document.getElementById("datefrom").value, to = document.getElementById("dateto").value;
     const showSup = document.getElementById("supf")?.checked;
@@ -435,7 +449,7 @@ function boot(data) {
     const familyOn = document.getElementById("familyf").checked;
     const memOn = document.getElementById("memf").checked;
     const etypes = new Set([...document.querySelectorAll(".etf:checked")].map(c => c.value));
-    const linkOK = l => !(rel && l.rel !== rel)
+    const linkOK = l => relsOn.has(l.rel)
       && !(l.kind === "supersedes" && !showSup)
       && linkEff(l) >= minW;
     let kept = data.nodes.filter(n =>
@@ -592,6 +606,27 @@ function boot(data) {
       }
     });
 
+  // Rel-aware physics: the default layout treats every link as the same weak
+  // spring, so a married couple can sit far apart while unrelated nodes crowd.
+  // Close-bond relations become short, strong springs (couples and families
+  // pull together); mentions stay long and loose (context, not structure);
+  // stronger bounded repulsion spreads the crowding.
+  const TIGHT_RELS = new Set(["married_to", "parent_of", "child_of", "sibling_of",
+                              "partner_of", "engaged_to", "holds", "has_role",
+                              "with", "at"]);
+  const linkForce = graph.d3Force("link");
+  if (linkForce) {
+    linkForce
+      .distance(l => l.kind === "edge" ? (TIGHT_RELS.has(l.rel) ? 26 : 60)
+                   : l.kind === "mention" ? 95
+                   : l.kind === "supersedes" ? 45 : 75)
+      .strength(l => l.kind === "edge" ? (TIGHT_RELS.has(l.rel) ? 0.9
+                                          : 0.3 * Math.max(0.3, l.weight || 1))
+                   : l.kind === "mention" ? 0.04 : 0.12);
+  }
+  const chargeForce = graph.d3Force("charge");
+  if (chargeForce) chargeForce.strength(-70).distanceMax(320);
+
   function refresh() {
     const vis = visible();
     if (document.getElementById("familyf").checked) {
@@ -638,7 +673,7 @@ function boot(data) {
     b.addEventListener("click", () => applyPreset(b.dataset.preset)));
   ["degmin", "degmax"].forEach(id =>
     document.getElementById(id).addEventListener("input", () => { degLabel(); refresh(); }));
-  ["scopef", "relf", "datefrom", "dateto"].forEach(id =>
+  ["scopef", "datefrom", "dateto"].forEach(id =>
     document.getElementById(id).addEventListener("change", refresh));
   document.getElementById("supf")?.addEventListener("change", refresh);
   ["nlabels", "elabels", "flowf", "familyf", "dirout", "dirin"].forEach(id =>
