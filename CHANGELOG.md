@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.8.4 - 2026-08-29
+
+### Changed
+- The `everything` preset now keeps a connection floor of 1 rather than 0. A node with nothing attached to it carries no information in a force layout, it only fills space, so no preset strands nodes any more
+
 ## v0.8.3 - 2026-08-29
 
 ### Fixed
