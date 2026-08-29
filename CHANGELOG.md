@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.8.1 - 2026-08-29
+
+### Fixed
+- Migration 15 could not run against a store that already had edges (#71 provenance columns). SQLite runs a full-table constraint scan for an `ALTER TABLE ADD COLUMN` carrying a CHECK; the `confidence` column added earlier in the same migration has no stored value on existing rows, so that scan read it as NULL and the upgrade died with `NOT NULL constraint failed`, leaving the store stranded at 14. The CHECK-carrying columns are now added first. Same resulting schema. Every existing graph was affected; empty and fresh stores never saw it
+- Migration tests all started from an empty store, which is why a rows-only failure shipped. Added a regression test that applies migration 15 verbatim to a populated `edges` table
+- Migration 21 materialises the defaults that `ALTER TABLE ADD COLUMN` never wrote. SQLite does not rewrite existing rows for an added column: it returns the default on read but stores nothing, so those records stay short and `PRAGMA integrity_check` reports `NULL value in <table>.<column>` for every NOT NULL column added that way. Affected `edges`, `memory_entities`, `entities` and `memories`. Reads were always correct, which is why it went unnoticed
+
 ## v0.8.0 - 2026-08-29
 
 The research-hardening release: twelve issues from the 2026-08-29 agent-memory
