@@ -10,6 +10,46 @@ import json
 import math
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
+
+_EMBED_URL_FALLBACK = "http://127.0.0.1:11434"  # Ollama's own default
+_OLLAMA_DEFAULT_PORT = 11434
+
+
+def _default_embed_url(raw: str | None = None) -> str:
+    """Derive the embedding endpoint from OLLAMA_HOST, Ollama's own variable.
+
+    A hardcoded port is a silent failure here, not a loud one: a server moved
+    off 11434 leaves embed_text() returning None, and the semantic layer is
+    fail-soft by design, so nothing errors and recall just quietly degrades.
+    Accepts every shape Ollama accepts (bare port, host:port, full URL,
+    bracketed IPv6); anything unparseable falls back rather than raising,
+    because this module's contract is that no input breaks config loading.
+    """
+    value = (os.environ.get("OLLAMA_HOST", "") if raw is None else raw).strip()
+    if not value:
+        return _EMBED_URL_FALLBACK
+    if value.isdigit():  # bare port, as `OLLAMA_HOST=11435`
+        value = f"127.0.0.1:{value}"
+    if "://" not in value:
+        value = f"http://{value}"
+    try:
+        parts = urlsplit(value)
+        if parts.scheme not in ("http", "https"):
+            return _EMBED_URL_FALLBACK
+        host, port = parts.hostname, parts.port  # .port raises on a bad port
+    except ValueError:
+        return _EMBED_URL_FALLBACK
+    if not host:
+        return _EMBED_URL_FALLBACK
+    if host in ("0.0.0.0", "::"):
+        # Bind addresses, not dial addresses: the server listens on all
+        # interfaces, but a client still has to name a real one.
+        host = "127.0.0.1"
+    if ":" in host:  # urlsplit strips IPv6 brackets; a URL needs them back
+        host = f"[{host}]"
+    return f"{parts.scheme}://{host}:{port or _OLLAMA_DEFAULT_PORT}"
+
 
 DEFAULTS: dict = {
     "pack_limit": 12,              # recall pack total row budget
@@ -29,7 +69,9 @@ DEFAULTS: dict = {
     "embed_query_prefix": "search_query: ",      # task prefix, model-specific (nomic default)
     "embed_doc_prefix": "search_document: ",     # task prefix for indexing
     "embed_model": "nomic-embed-text",
-    "embed_url": "http://localhost:11434",  # Ollama-compatible /api/embeddings endpoint
+    # Ollama-compatible /api/embeddings endpoint. Read from OLLAMA_HOST at
+    # import; an explicit embed_url in config.json still overrides it.
+    "embed_url": _default_embed_url(),
     "graph_strict": False,         # #70: refuse unknown/retired/abstract graph types at write
     "origin_weight_agent": 0.9,    # #64 recall rank multiplier for agent-derived rows
     "origin_weight_external": 0.5, # #64 recall rank multiplier for external-content rows
